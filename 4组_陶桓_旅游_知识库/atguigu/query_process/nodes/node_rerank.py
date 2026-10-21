@@ -16,6 +16,20 @@ class NodeRerank(NodeBase):
 
     name: str = "node_rerank"
 
+    # 需要在重排过程中保留的旅游元数据字段，
+    # 否则 8005 无法返回 content_type / city / source_file 等引用信息
+    META_FIELDS = (
+        "content_type",
+        "city",
+        "source_file",
+        "source_path",
+        "entities",
+        "route_name",
+        "duration_days",
+        "budget_ref",
+        "estimated",
+    )
+
     def process(self, state: QueryGraphState):
         logger.info(f"【{self.name}】节点逻辑")
 
@@ -62,11 +76,14 @@ class NodeRerank(NodeBase):
                     "url": ""
                 })
                 continue
+            # 标题优先用切片标题（如「亚龙湾」），不要拿城市名当标题
+            raw_title = str(doc.get("title") or "").lstrip("#").strip()
             merged_chunks.append({
-                "title": doc.get("item_name", "") or doc.get("title", ""),
+                "title": raw_title or doc.get("item_name", "") or "无标题",
                 "content": doc.get("content", "") or "无内容",
                 "source": doc.get("source", "local"),
-                "url": doc.get("url", "")
+                "url": doc.get("url", ""),
+                **{k: doc.get(k) for k in self.META_FIELDS if k in doc},
             })
 
         # 2. 格式化网络搜索结果
@@ -163,24 +180,27 @@ class NodeRerank(NodeBase):
 if __name__ == "__main__":
     node = NodeRerank()
     init_state = {
-        "rewritten_query": "关于兄弟HAK180烫金机如何使用",
+        "rewritten_query": "三亚亚龙湾适合什么人去",
         "rrf_chunks": [
-            # ... 测试数据
-        ],
-        "web_search_docs": [
-            # ... 测试数据
+            {
+                "title": "亚龙湾",
+                "content": "亚龙湾适合亲子游客、情侣和第一次来三亚的人。",
+                "source": "local",
+                "content_type": "景点介绍",
+                "city": "三亚",
+                "source_file": "三亚景点推荐.md",
+            }
         ],
         "graph_results": [
-            # 图检索结果示例
             {
-                "head": "HAK 180烫金机",
-                "relation": "包含",
-                "tail": "型号D01WD7001-00",
-                "content": "HAK 180烫金机包含型号D01WD7001-00",
+                "head": "亚龙湾",
+                "relation": "位于",
+                "tail": "三亚",
+                "content": "亚龙湾 位于 三亚",
                 "source": "graph",
-                "score": 0.8
+                "score": 0.8,
             }
-        ]
+        ],
     }
     res = node(init_state)
     logger.info(json_format(res))

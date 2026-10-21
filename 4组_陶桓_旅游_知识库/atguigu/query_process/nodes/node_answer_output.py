@@ -39,13 +39,40 @@ class NodeAnswerOutput(NodeBase):
             #第二步,调用大模型,根据提示词生成答案
             answer = self.generat_answer(answer, prompt, task_id)
 
-            #3整理图片的链接
+            #3 追加参考来源区块（不改 SSE 协议，仍走 delta 事件）
+            citation = self.build_citation_block(chunks)
+            if citation:
+                put_data(task_id, "delta", {"delta": citation})
+                answer += citation
+
+            #4整理图片的链接
             images = self.search_final_images(chunks)
 
-            #4写入历史
+            #5写入历史
             self.write_history(answer, images, item_names, query, state, task_id)
 
         return {"answer": answer}
+
+    def build_citation_block(self, chunks: list) -> str:
+        """按来源文件生成【参考来源】区块，供前端渲染成来源标签。"""
+        lines = []
+        seen = set()
+        for doc in chunks or []:
+            if not isinstance(doc, dict):
+                continue
+            source_file = str(doc.get("source_file") or "").strip()
+            if not source_file or source_file in seen:
+                continue
+            seen.add(source_file)
+            meta = "·".join(
+                str(x).strip()
+                for x in (doc.get("content_type"), doc.get("city"))
+                if str(x or "").strip()
+            )
+            lines.append(f"- {source_file}" + (f"（{meta}）" if meta else ""))
+        if not lines:
+            return ""
+        return "\n\n【参考来源】\n" + "\n".join(lines)
 
     def write_history(self, answer, images, item_names, query, state,task_id):
         if answer:
@@ -112,7 +139,7 @@ class NodeAnswerOutput(NodeBase):
             text = h.get("text")
             h_content = f"[{role}]: {text}\n\n"
             history_content += h_content
-        item_names = state.get("item_names")
+        item_names = state.get("item_names") or []
         item_name_str = ",".join(item_names)
         query = state.get("rewritten_query")
         prompt = ANSWER_PROMPT.format(

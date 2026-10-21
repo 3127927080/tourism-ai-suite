@@ -1,6 +1,7 @@
 from langgraph.constants import END, START
 from langgraph.graph import StateGraph
 
+from atguigu.config.config import RetrievalConfig
 from atguigu.query_process.nodes.node_rerank import NodeRerank
 from atguigu.query_process.nodes.node_rrf import NodeRrf
 from atguigu.query_process.nodes.node_search_embedding import NodeSearchEmbedding
@@ -10,7 +11,7 @@ from atguigu.query_process.state import QueryGraphState
 
 
 class RetrievalMainGraphRunner:
-    """商品名确认之后的多路召回、融合和重排。"""
+    """目的地确认之后的多路召回、融合和重排。"""
 
     def __init__(self):
         self.builder = StateGraph(state_schema=QueryGraphState)
@@ -43,12 +44,18 @@ class RetrievalMainGraphRunner:
         self.builder.add_edge(NodeRerank.name, END)
 
     @staticmethod
+    def active_search_nodes():
+        """按开关决定实际参与的检索路：向量必开，HyDE / 图谱可选。"""
+        nodes = [NodeSearchEmbedding.name]
+        if RetrievalConfig.enable_hyde:
+            nodes.append(NodeSearchEmbeddingHyde.name)
+        if RetrievalConfig.enable_graph:
+            nodes.append(NodeSearchGraph.name)
+        return nodes
+
+    @staticmethod
     def fanout_search(state: QueryGraphState):
-        return [
-            NodeSearchEmbedding.name,
-            NodeSearchEmbeddingHyde.name,
-            NodeSearchGraph.name,
-        ]
+        return RetrievalMainGraphRunner.active_search_nodes()
 
     @staticmethod
     def route_after_rrf(state: QueryGraphState):

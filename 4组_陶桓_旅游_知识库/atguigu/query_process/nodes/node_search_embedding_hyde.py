@@ -2,12 +2,14 @@
 import json
 
 from langchain.chat_models import init_chat_model
-from openai import api_key
-from torch.distributed.debug._frontend import format_json
 
 from atguigu.config.config import LLMConfig, MilvusConfig
 from atguigu.config.prompt import HYDE_PROMPT
 from atguigu.query_process.base import NodeBase
+from atguigu.query_process.nodes.node_search_embedding import (
+    OUTPUT_FIELDS,
+    build_filter_expr,
+)
 from atguigu.query_process.state import QueryGraphState
 from atguigu.tool.embedding_utils import get_embeddings
 from atguigu.tool.json_format_tool import json_format
@@ -25,11 +27,8 @@ class NodeSearchEmbeddingHyde(NodeBase):
     name: str = "node_search_embedding_hyde"
 
     def get_rewitten_query(self, state: QueryGraphState):
-        item_names = state.get("item_names", [])
-        if not item_names:
-            logger.error("请输入要检索的主体名")
-            raise Exception("请输入要检索的主体名")
-
+        # 旅游版：目的地识别失败时也允许走全局检索，因此不再强制要求 item_names
+        item_names = state.get("item_names", []) or []
         rewritten_query = state.get("rewritten_query", "")
         if not rewritten_query:
             logger.error("请输入要检索的问题")
@@ -51,16 +50,12 @@ class NodeSearchEmbeddingHyde(NodeBase):
         hyde_answer = res.content
         return hyde_answer
 
-    def get_hyde_embedding_chunks(self, hyde_answer, item_names,rewritten_query):
+    def get_hyde_embedding_chunks(self, hyde_answer, item_names, rewritten_query, content_type="",
+                                  entities=None):
         merged_query = rewritten_query + " " + hyde_answer
         rewritten_query_embeddings = get_embeddings([merged_query])
-        # 准备查询向量
         collection_name = MilvusConfig.chunks_collection
-        # item_names = [
-        #     item_name.replace("\\", "\\\\").replace("'", "\\'").replace('"', '\\"')
-        #     for item_name in item_names
-        # ]
-        expr = f"item_name in {json.dumps(item_names, ensure_ascii=False)}"
+        expr = build_filter_expr(item_names, content_type, entities or [])
 
         reqs = create_reqs(
             dense_data=rewritten_query_embeddings.get("dense", []),
@@ -70,27 +65,24 @@ class NodeSearchEmbeddingHyde(NodeBase):
             limit=10,
             dense_param={"metric_type": "COSINE"},
             sparse_param={"metric_type": "IP"},
-            expr=expr
+            expr=expr or None,
         )
 
         res = search_hybird(
             collection_name=collection_name,
             reqs=reqs,
             ranker=(0.8, 0.2),
-            output_fields=["id", "file_title", "title", "content", "item_name"]
+            output_fields=OUTPUT_FIELDS,
         )
-        print(json_format(res))
-        logger.info(json_format(res[0]))
-        # 对结果进行处理
-        hyde_embedding_chunks = [
+        hits = res[0] if res else []
+        return [
             {
-                **item.get("entity"),
+                **(item.get("entity") or {}),
                 "score": item.get("distance"),
-                "source": "local"
+                "source": "local",
             }
-            for item in res[0]
+            for item in hits
         ]
-        return hyde_embedding_chunks
 
     def process(self, state: QueryGraphState):
         """
@@ -107,7 +99,13 @@ class NodeSearchEmbeddingHyde(NodeBase):
         hyde_answer = self.get_hyde_answer(rewritten_query)
 
         #3,讲生成的答案和问题组合,然后向量化去查表
-        hyde_embedding_chunks = self.get_hyde_embedding_chunks(hyde_answer, item_names, rewritten_query)
+        hyde_embedding_chunks = self.get_hyde_embedding_chunks(
+            hyde_answer,
+            item_names,
+            rewritten_query,
+            content_type=state.get("query_content_type") or "",
+            entities=state.get("query_entities") or [],
+        )
 
         # return state
         return {"hyde_embedding_chunks": hyde_embedding_chunks}
@@ -115,9 +113,11 @@ class NodeSearchEmbeddingHyde(NodeBase):
 
 if __name__ == "__main__":
     init_state = {
-        "rewritten_query": "关于兄弟HAK180烫金机如何使用",
-        "item_names": ["兄弟HAK180烫金机"]
+        "rewritten_query": "三亚有哪些适合亲子的景点",
+        "item_names": ["三亚"],
+        "query_content_type": "景点介绍",
+        "query_entities": [],
     }
     node_search_embedding_hyde = NodeSearchEmbeddingHyde()
     result = node_search_embedding_hyde(init_state)
-    logger.info(json_format(result))
+    logger.info(json_format({"count": len(result.get("hyde_embedding_chunks", []))}))

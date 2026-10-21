@@ -1,4 +1,12 @@
 # atguigu/import_process/nodes/node_item_name_recognition.py
+"""主体识别节点（旅游版）。
+
+改造要点：
+1. item_name 粒度 = 目的地城市，优先取元数据里的 city，缺失才调 LLM；
+2. 为城市与文档实体各写一行别名记录，parent_item_name 指向主城市，
+   使「大理」「亚龙湾」这类查询能命中主城市文档；
+3. 幂等删除改为按 source_path，避免误删同城市其他文档。
+"""
 import json
 
 from langchain.chat_models import init_chat_model
@@ -11,28 +19,30 @@ from atguigu.import_process.state import ImportGraphState
 from atguigu.tool.embedding_utils import get_embeddings
 from atguigu.tool.json_format_tool import json_format
 from atguigu.tool.logger import logger
-from atguigu.tool.milvus_client_tool import milvus_client, get_milvus_client
+from atguigu.tool.milvus_client_tool import get_milvus_client
+
+
+def escape_filter_value(value: str) -> str:
+    """转义 Milvus 过滤表达式中的字符串值。"""
+    return str(value).replace("\\", "\\\\").replace("'", "\\'").replace('"', '\\"')
 
 
 class NodeItemNameRecognition(NodeBase):
     """
-    主体识别节点：主体识别与标签提取
+    主体识别节点：主体识别与别名写入
     """
 
     name = "node_item_name_recognition"
 
-
-    def get_chunks(self, state: ImportGraphState) -> tuple[list, str]:
+    # ============================================================
+    # 一、主体名称
+    # ============================================================
+    def get_chunks(self, state: ImportGraphState) -> list:
         chunks = state.get("chunks", [])
         if not chunks:
             logger.error("chunks必须提供")
             raise ValueError("chunks必须提供")
-
-        file_title = state.get("file_title")
-        if not file_title:
-            logger.error("file_title必须提供")
-            raise ValueError("file_title必须提供")
-        return chunks, file_title
+        return chunks
 
     def get_chunks_content(self, chunks: list, file_title: str) -> str:
         chunk_k_list = chunks[:10]
@@ -42,100 +52,139 @@ class NodeItemNameRecognition(NodeBase):
             title = chunk.get("title")
             content = chunk.get("content")
             chunk_str = f"[切片{idx}]\n{file_title}\n{title}\n{content}\n"
-            # 判断content_str是不是已经超过max_len
             if len(content_str) > max_len:
-                logger.info(f"已经超过最大长度，不再拼接")
+                logger.info("已经超过最大长度，不再拼接")
                 break
             content_str += chunk_str
-        content_str = content_str[:max_len]
-        return content_str
-    def get_item_name(self, content_str: str, file_title: str) -> str:
-        # 3.1对chunks进行非空判断
+        return content_str[:max_len]
+
+    def get_item_name_by_llm(self, content_str: str, file_title: str) -> str:
+        """元数据缺失时的兜底：让 LLM 识别目的地城市。"""
         if not content_str:
-            logger.error("content_str必须提供")
-            raise ValueError("content_str必须提供")
-        logger.info(f"开始调用大模型进行主体识别")
+            return ""
+        logger.info("元数据缺少城市，调用大模型进行主体识别")
         llm = init_chat_model(
             model=LLMConfig.item_model,
             model_provider="openai",
             api_key=LLMConfig.aliyun_api_key,
             base_url=LLMConfig.aliyun_api_base,
-            temperature=LLMConfig.llm_default_temperature
+            temperature=LLMConfig.llm_default_temperature,
         )
         messages = [
             {"role": "system", "content": ITEM_NAME_SYSTEM_PROMPT},
             {
                 "role": "user",
-                "content": ITEM_NAME_USER_PROMPT_TEMPLATE.format(file_title=file_title, context=content_str)
-            }
+                "content": ITEM_NAME_USER_PROMPT_TEMPLATE.format(
+                    file_title=file_title, context=content_str
+                ),
+            },
         ]
-
         res = llm.invoke(messages)
-        item_name = res.content
-        # 对获取的主题进行处理,去除空格
-        item_name = item_name.replace(" ", "").replace("\n", "").replace("\t", "")
-        # 如果主题为空,则讲file_tilte赋值给item_name
+        text = str(res.content or "").strip()
+        text = text.replace("```json", "").replace("```", "").strip()
+        try:
+            data = json.loads(text)
+            return str(data.get("city") or "").strip()
+        except (json.JSONDecodeError, AttributeError):
+            # 兜底：模型直接返回了城市名
+            return text.replace(" ", "").replace("\n", "")
+
+    def get_item_name(self, state: ImportGraphState, chunks: list) -> str:
+        meta = state.get("doc_metadata") or {}
+        city = str(meta.get("city") or "").strip()
+        if city:
+            return city
+        file_title = state.get("file_title") or chunks[0].get("file_title") or ""
+        content_str = self.get_chunks_content(chunks, file_title)
+        item_name = self.get_item_name_by_llm(content_str, file_title)
         if not item_name:
+            logger.warning(f"主体识别失败，使用文件名兜底：{file_title}")
             item_name = file_title
         return item_name
 
-    def create_milvus_collection(self) :
-        # 获取milvus_client连接
+    # ============================================================
+    # 二、别名行
+    # ============================================================
+    def build_alias_rows(self, meta: dict, item_name: str, chunks: list) -> list[dict]:
+        """主城市一行，cities 与 entities 各写一行别名，去重后返回。"""
+        rows: list[dict] = []
+        seen: set[str] = set()
+
+        def add(name, parent: str) -> None:
+            value = str(name or "").strip()
+            if not value or value in seen:
+                return
+            # Milvus VARCHAR(100)，留出余量
+            if len(value) > 90:
+                return
+            seen.add(value)
+            rows.append({"item_name": value, "parent_item_name": parent})
+
+        add(item_name, item_name)
+        for city in meta.get("cities") or []:
+            add(city, item_name)
+        for entity in meta.get("entities") or []:
+            if isinstance(entity, dict):
+                add(entity.get("name"), item_name)
+
+        source_file = meta.get("source_file") or chunks[0].get("file_title", "")
+        source_path = meta.get("source_path") or source_file
+        for row in rows:
+            row["content_type"] = meta.get("content_type", "")
+            row["source_file"] = source_file
+            row["source_path"] = source_path
+        return rows
+
+    # ============================================================
+    # 三、集合与写入
+    # ============================================================
+    def create_milvus_collection(self) -> tuple[str, object]:
         milvus_client = get_milvus_client()
         if not milvus_client:
             logger.error("初始化milvus_client失败")
             raise Exception("初始化milvus_client失败")
-        # 幂等性删除一般不会对整张表进行操作，一般都是针对表里面的相同数据进行幂等删除
+
         collection_name = MilvusConfig.item_name_collection
         if not milvus_client.has_collection(collection_name):
-            schema = milvus_client.create_schema(
-                auto_id=True,
-            )
-
+            schema = milvus_client.create_schema(auto_id=True)
             schema.add_field(
-                field_name="id",
-                datatype=DataType.INT64,
-                is_primary=True,
+                field_name="id", datatype=DataType.INT64, is_primary=True
             ).add_field(
-                field_name="item_name",
-                datatype=DataType.VARCHAR,
-                max_length=100,
+                field_name="item_name", datatype=DataType.VARCHAR, max_length=100
             ).add_field(
-                field_name="file_title",
-                datatype=DataType.VARCHAR,
-                max_length=100,
+                field_name="parent_item_name", datatype=DataType.VARCHAR, max_length=100
             ).add_field(
-                field_name="dense_vector",
-                datatype=DataType.FLOAT_VECTOR,
-                dim=1024
+                field_name="content_type", datatype=DataType.VARCHAR, max_length=32
             ).add_field(
-                field_name="sparse_vector",
-                datatype=DataType.SPARSE_FLOAT_VECTOR,
+                field_name="source_file", datatype=DataType.VARCHAR, max_length=200
+            ).add_field(
+                field_name="source_path", datatype=DataType.VARCHAR, max_length=500
+            ).add_field(
+                field_name="dense_vector", datatype=DataType.FLOAT_VECTOR, dim=1024
+            ).add_field(
+                field_name="sparse_vector", datatype=DataType.SPARSE_FLOAT_VECTOR
             )
 
             index_params = milvus_client.prepare_index_params()
             index_params.add_index(
                 field_name="dense_vector",
-                index_type="IVF_FLAT",  # 暴力检索
+                index_type="IVF_FLAT",
                 metric_type="COSINE",
-                params={"nlist": 128, "nprobe": 10},  # 提升效率否则暴力检索虽然准备效率太低
+                params={"nlist": 128, "nprobe": 10},
             )
-
             index_params.add_index(
                 field_name="sparse_vector",
-                index_type="SPARSE_INVERTED_INDEX",  # 暴力检索
+                index_type="SPARSE_INVERTED_INDEX",
                 metric_type="IP",
                 params={
                     "inverted_index_algo": "DAAT_MAXSCORE",
-                    # 高效的稀疏检索算法
                     "normalize": True,
-                    # ↑ L2 归一化，让内积 (IP) 等价于余弦相似度
-                    "quantization": "none"
-                    # ↑ 关闭量化，保持原始精度：模型生成的向量已经压缩的一半的精度了（BGE_FP16=1），这里就不再压缩了
-                    # "quantization": "none" → 存储原始向量，不压缩
-                    # "quantization": "sq8" → 存储压缩后的向量（8-bit 量化
-                }
+                    "quantization": "none",
+                },
             )
+            # 标量索引：便于按来源删除与按内容类型过滤
+            for field in ("item_name", "parent_item_name", "content_type", "source_path"):
+                index_params.add_index(field_name=field, index_type="INVERTED")
 
             milvus_client.create_collection(
                 collection_name=collection_name,
@@ -144,66 +193,75 @@ class NodeItemNameRecognition(NodeBase):
             )
         return collection_name, milvus_client
 
-    def insert_into_milvus(self, chunks: list, collection_name: str | None, file_title: str, item_name: str,
-                           milvus_client):
-        # 对要存入的数据进行幂等性删除
+    def insert_into_milvus(
+        self, chunks: list, collection_name: str, milvus_client, meta: dict, item_name: str
+    ) -> None:
         milvus_client.load_collection(collection_name=collection_name)
-        safe_item_name = item_name.replace("\\", "\\\\").replace("'", "\\'").replace('"', '\\"')
-        filter_str = f"item_name == '{safe_item_name}'"
-        milvus_client.delete(collection_name=collection_name, filter=filter_str)
-        # 插入数据
-        # 通过bgem3去向量化
-        embedding = get_embeddings([item_name])
-        data = {
-            "item_name": item_name,
-            "file_title": file_title,
-            "dense_vector": embedding.get("dense")[0],
-            "sparse_vector": embedding.get("sparse")[0],
-        }
-        result = milvus_client.insert(
-            collection_name=collection_name,
-            data=data
+
+        # 按 source_path 幂等删除该文档的所有别名行
+        source_path = escape_filter_value(
+            meta.get("source_path") or chunks[0].get("file_title", "")
         )
-        # 回填item_name到每个chunk
+        milvus_client.delete(
+            collection_name=collection_name,
+            filter=f"source_path == '{source_path}'",
+        )
+
+        rows = self.build_alias_rows(meta, item_name, chunks)
+        if not rows:
+            logger.warning("没有可写入的主体别名行")
+            return
+
+        embeddings = get_embeddings([row["item_name"] for row in rows])
+        data = []
+        for idx, row in enumerate(rows):
+            data.append(
+                {
+                    **row,
+                    "dense_vector": embeddings.get("dense")[idx],
+                    "sparse_vector": embeddings.get("sparse")[idx],
+                }
+            )
+        milvus_client.insert(collection_name=collection_name, data=data)
+        logger.info(f"主体别名写入 {len(data)} 行：{', '.join(r['item_name'] for r in rows[:10])}")
+
+        # 回填 item_name 到每个 chunk，供向量化与 chunks 集合使用
         for chunk in chunks:
             chunk["item_name"] = item_name
 
+    # ============================================================
+    # 四、主流程
+    # ============================================================
     def process(self, state: ImportGraphState):
-        #第一步,获取上一个节点chunks,
-        chunks, file_title = self.get_chunks(state)
+        chunks = self.get_chunks(state)
+        meta = state.get("doc_metadata") or {}
+        item_name = self.get_item_name(state, chunks)
 
-        #第二步,将chunks切分,大模型输入长度有限制
-        content_str = self.get_chunks_content(chunks, file_title)
-
-        #第三步,调用大模型,进行主体识别
-        item_name = self.get_item_name(content_str, file_title)
-
-        #4.第四步,准备存库,先建表
         collection_name, milvus_client = self.create_milvus_collection()
-
-        #5.第五步,将得到的item_name向量化后存表
-        self.insert_into_milvus(chunks, collection_name, file_title, item_name, milvus_client)
-
-        #方便下一个节点使用,讲chunks写入文件
-        # with open(r"D:\output\doc\parse\hak180产品安全手册\chunks2.json", "w", encoding="utf-8") as f:
-        #     f.write(json_format(chunks))
-
+        self.insert_into_milvus(chunks, collection_name, milvus_client, meta, item_name)
 
         return {
             "chunks": chunks,
-            "item_name": item_name
+            "item_name": item_name,
         }
 
 
-
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     node = NodeItemNameRecognition()
-    with open(r"D:\output\doc\parse\hak180产品安全手册\chunks.json", "r", encoding="utf-8") as f:
+    md_file = "D:/output/chunks.json"
+    with open(md_file, "r", encoding="utf-8") as f:
         chunks = json.load(f)
     state = {
         "chunks": chunks,
-        "file_title": "hak180产品安全手册"
+        "file_title": "三亚景点推荐",
+        "doc_metadata": {
+            "content_type": "景点介绍",
+            "city": "三亚",
+            "cities": ["三亚"],
+            "entities": [{"name": "亚龙湾", "type": "景点"}],
+            "source_file": "三亚景点推荐.md",
+            "source_path": "景点攻略/三亚景点推荐.md",
+        },
     }
     res = node(state)
     logger.info(json_format(res))

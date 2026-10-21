@@ -2,7 +2,11 @@ import json
 import re
 from typing import List, Dict, Any, Tuple
 
-from atguigu.config.prompt import TRIPLE_EXTRACTION_USER_TEMPLATE, TRIPLE_EXTRACTION_SYSTEM_PROMPT
+from atguigu.config.prompt import (
+    TRIPLE_EXTRACTION_BATCH_TEMPLATE,
+    TRIPLE_EXTRACTION_SYSTEM_PROMPT,
+)
+from atguigu.config.relation_schema import is_valid_relation
 from atguigu.import_process.base import NodeBase
 from atguigu.import_process.state import ImportGraphState
 from atguigu.config.config import LLMConfig
@@ -38,6 +42,9 @@ class NodeGraphExtract(NodeBase):
         # ===== 批量提取配置 =====
         BATCH_SIZE = 4  # 每批处理 4 个 chunk，可根据模型上下文窗口调整（建议 3-5）
         all_triples = []
+        dropped_format = 0       # 格式不合法（不是三元组）
+        dropped_relation = 0     # 关系不在 12 类词表内
+        invalid_relations = []   # 记录被丢弃的关系，便于排查
 
         for batch_idx in range(0, len(chunks), BATCH_SIZE):
             batch = chunks[batch_idx:batch_idx + BATCH_SIZE]
@@ -61,24 +68,8 @@ class NodeGraphExtract(NodeBase):
 
             combined_content = "\n\n---\n\n".join(combined_parts)
 
-            # 2. 构造批量提取提示词
-            batch_user_prompt = f"""
-请从以下多个文本片段中提取实体关系三元组 (头实体, 关系, 尾实体)。
-
-{combined_content}
-
-要求：
-1. 每个文本片段独立提取，不要混淆
-2. 输出格式为 JSON 列表，每个元素是一个三元组 [头实体, 关系, 尾实体]
-3. 如果某个文本片段无有效三元组，忽略它即可
-4. 只输出 JSON 数组，不要添加任何解释
-
-输出格式示例：
-[
-  ["HAK180", "包含", "主轴电机"],
-  ["主轴电机", "需要", "定期维护"]
-]
-"""
+            # 2. 构造批量提取提示词（关系词表与 relation_schema 同源）
+            batch_user_prompt = TRIPLE_EXTRACTION_BATCH_TEMPLATE.format(content=combined_content)
 
             # 3. 调用 LLM
             try:
@@ -93,9 +84,26 @@ class NodeGraphExtract(NodeBase):
                 if json_str:
                     triples = json.loads(json_str)
                     if isinstance(triples, list):
-                        valid_triples = [t for t in triples if isinstance(t, list) and len(t) == 3]
+                        valid_triples = []
+                        for triple in triples:
+                            if not (isinstance(triple, list) and len(triple) == 3):
+                                dropped_format += 1
+                                continue
+                            head, relation, tail = (str(x).strip() for x in triple)
+                            if not head or not tail:
+                                dropped_format += 1
+                                continue
+                            # 关系必须落在 12 类词表内，否则图检索无法命中
+                            if not is_valid_relation(relation):
+                                dropped_relation += 1
+                                if relation not in invalid_relations:
+                                    invalid_relations.append(relation)
+                                continue
+                            valid_triples.append([head, relation, tail])
                         all_triples.extend(valid_triples)
-                        logger.info(f"批次 {batch_idx // BATCH_SIZE + 1} 提取到 {len(valid_triples)} 个三元组")
+                        logger.info(
+                            f"批次 {batch_idx // BATCH_SIZE + 1} 保留 {len(valid_triples)} 个三元组"
+                        )
                     else:
                         logger.warning(f"批次 {batch_idx // BATCH_SIZE + 1} 返回格式不是列表: {raw_output[:100]}")
                 else:
@@ -114,7 +122,12 @@ class NodeGraphExtract(NodeBase):
                 seen.add(key)
                 unique_triples.append(triple)
 
-        logger.info(f"总共提取到 {len(unique_triples)} 个唯一三元组")
+        logger.info(
+            f"总共提取到 {len(unique_triples)} 个唯一三元组"
+            f"（丢弃：格式异常 {dropped_format}，关系越界 {dropped_relation}）"
+        )
+        if invalid_relations:
+            logger.warning(f"被丢弃的关系词：{invalid_relations[:10]}")
         return {
             "triples": unique_triples
         }

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8"/>
     <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-    <title>掌柜智库</title>
+    <title>旅途智库 · 旅游知识问答</title>
     <style>
         :root {
             --bg: #0f172a;
@@ -130,6 +130,59 @@
             overflow: auto;
             padding: 16px 14px 10px;
             background: rgba(15, 23, 42, 0.3);
+        }
+
+        .quick {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            padding: 10px 14px 0;
+            background: rgba(15, 23, 42, 0.3);
+        }
+
+        .quick button {
+            border: 1px solid rgba(56, 189, 248, 0.28);
+            background: rgba(56, 189, 248, 0.08);
+            color: #bae6fd;
+            font-size: 12px;
+            padding: 6px 12px;
+            border-radius: 999px;
+            cursor: pointer;
+            transition: all .2s ease;
+        }
+
+        .quick button:hover {
+            background: rgba(56, 189, 248, 0.18);
+            border-color: rgba(56, 189, 248, 0.55);
+        }
+
+        .citations {
+            margin-top: 10px;
+            padding-top: 8px;
+            border-top: 1px dashed rgba(255, 255, 255, 0.14);
+        }
+
+        .citations-title {
+            font-size: 12px;
+            color: var(--muted);
+            margin-bottom: 6px;
+        }
+
+        .citation-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+        }
+
+        .citation-item {
+            font-size: 12px;
+            color: #a7f3d0;
+            border: 1px solid rgba(52, 211, 153, 0.3);
+            background: rgba(52, 211, 153, 0.08);
+            border-radius: 999px;
+            padding: 4px 10px;
+            max-width: 100%;
+            overflow-wrap: break-word;
         }
 
         .dayline {
@@ -367,17 +420,14 @@
         <div class="brand">
             <div class="logo">
                 <svg width="100%" height="100%" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <rect x="2.5" y="4" width="19" height="16" rx="3" fill="white"/>
-                    <circle cx="12" cy="1.8" r="1.4" fill="white"/>
-                    <rect x="11.6" y="1.8" width="0.8" height="2.2" fill="white"/>
-                    <circle cx="8" cy="10" r="1.3" fill="#38bdf8"/>
-                    <circle cx="16" cy="10" r="1.3" fill="#38bdf8"/>
-                    <rect x="7.2" y="14.2" width="9.6" height="1.6" rx="0.8" fill="#38bdf8"/>
+                    <circle cx="17.2" cy="7" r="2.1" fill="#fff"/>
+                    <path d="M3.2 17.8 L9.2 9.2 L13.1 14.9 L16.2 11 L20.8 17.8 Z" fill="#fff"/>
+                    <path d="M3.2 19.2 H20.8" stroke="#fff" stroke-width="1.3" stroke-linecap="round" opacity="0.85"/>
                 </svg>
             </div>
             <div class="title">
-                <strong>掌柜智库</strong>
-                <span id="subTitle">在线 · 可查询知识库与联网信息</span>
+                <strong>旅途智库</strong>
+                <span id="subTitle">旅游知识库 · 景点 / 线路 / 酒店 / 美食 / 交通</span>
             </div>
         </div>
         <div class="top-actions">
@@ -391,10 +441,18 @@
         <div class="msg bot">
             <div class="avatar bot">🤖</div>
             <div>
-                <div class="bubble">你好，我是掌柜智库客服。你可以直接提问，我会在"阶段进度"里展示处理过程。</div>
-                <div class="meta">提示：可以问"如何使用万用表测量电压？"</div>
+                <div class="bubble">你好，我是旅途智库助手。可以问我景点、线路、酒店、美食和交通问题，我会展示检索过程并标注参考来源。</div>
+                <div class="meta">提示：可以问“三亚有哪些必去景点？”或“云南 6 天怎么安排？”</div>
             </div>
         </div>
+    </div>
+
+    <div class="quick" id="quick">
+        <button data-q="三亚有哪些必去景点？">三亚必去景点</button>
+        <button data-q="云南 6 天怎么安排？">云南 6 天线路</button>
+        <button data-q="去三亚住哪个湾区比较方便？">三亚住哪</button>
+        <button data-q="成都有什么必吃的美食？">成都美食</button>
+        <button data-q="张家界从机场怎么去武陵源？">张家界交通</button>
     </div>
 
     <div class="composer">
@@ -418,10 +476,10 @@
     const apiPill = document.getElementById('apiPill');
 
     // 会话管理
-    let sessionId = localStorage.getItem('kb_session_id');
+    let sessionId = localStorage.getItem('tourism_kb_session_id');
     if (!sessionId) {
-        sessionId = 'sess-' + Math.random().toString(36).slice(2) + Date.now().toString(36);
-        localStorage.setItem('kb_session_id', sessionId);
+        sessionId = 'tour-' + Math.random().toString(36).slice(2) + Date.now().toString(36);
+        localStorage.setItem('tourism_kb_session_id', sessionId);
     }
 
     // ============================================================
@@ -540,6 +598,20 @@
     // ============================================================
     // 核心渲染函数（修复版）
     // ============================================================
+    // 把答案末尾的【参考来源】区块拆出来，单独渲染成来源标签
+    function splitCitations(raw) {
+        const s = String(raw || '');
+        const marker = '【参考来源】';
+        const idx = s.lastIndexOf(marker);
+        if (idx === -1) return {text: s, citations: []};
+        const text = s.slice(0, idx).trimEnd();
+        const citations = s.slice(idx + marker.length)
+            .split(/\r?\n/)
+            .map(line => line.trim().replace(/^[-*]\s*/, ''))
+            .filter(Boolean);
+        return {text, citations};
+    }
+
     function renderAnswerWithImages(containerEl, answerText, candidateImageUrls) {
         if (!containerEl) {
             console.warn('renderAnswerWithImages: containerEl 为空');
@@ -549,8 +621,9 @@
         // 清空容器
         containerEl.innerHTML = '';
 
-        // 提取文本和图片
-        const {text, images: imagesFromBlock} = parseAnswerAndImages(answerText);
+        // 先拆参考来源，再解析图片，避免来源行被当成图片候选
+        const {text: textWithoutCitations, citations} = splitCitations(answerText);
+        const {text, images: imagesFromBlock} = parseAnswerAndImages(textWithoutCitations);
         const candidates = Array.isArray(candidateImageUrls)
             ? candidateImageUrls.map(normalizeUrl).filter(isImageUrl)
             : [];
@@ -593,6 +666,28 @@
                 imgWrap.appendChild(link);
             }
             containerEl.appendChild(imgWrap);
+        }
+
+        // 渲染参考来源
+        if (citations.length > 0) {
+            const wrap = document.createElement('div');
+            wrap.className = 'citations';
+
+            const title = document.createElement('div');
+            title.className = 'citations-title';
+            title.textContent = '参考来源';
+            wrap.appendChild(title);
+
+            const list = document.createElement('div');
+            list.className = 'citation-list';
+            for (const item of citations) {
+                const chip = document.createElement('span');
+                chip.className = 'citation-item';
+                chip.textContent = item;
+                list.appendChild(chip);
+            }
+            wrap.appendChild(list);
+            containerEl.appendChild(wrap);
         }
     }
 
@@ -921,6 +1016,14 @@
     // 事件绑定
     // ============================================================
     sendBtn.addEventListener('click', onSend);
+    document.querySelectorAll('#quick button').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const q = btn.dataset.q || btn.textContent || '';
+            if (!q.trim() || sendBtn.disabled) return;
+            inputEl.value = q;
+            onSend();
+        });
+    });
     inputEl.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();

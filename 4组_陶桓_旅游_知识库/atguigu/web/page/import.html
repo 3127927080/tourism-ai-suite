@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>文件导入服务</title>
+    <title>旅途智库 · 旅游知识导入</title>
     <style>
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -37,10 +37,66 @@
         h1 {
             color: #f8fafc;
             text-align: center;
-            margin-bottom: 30px;
+            margin-bottom: 18px;
             font-weight: 600;
             letter-spacing: 1px;
             text-shadow: 0 0 20px rgba(56, 189, 248, 0.4);
+        }
+
+        .type-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            justify-content: center;
+            margin-bottom: 16px;
+        }
+
+        .type-chip {
+            font-size: 12px;
+            color: #bae6fd;
+            border: 1px solid rgba(56, 189, 248, 0.28);
+            background: rgba(56, 189, 248, 0.08);
+            padding: 5px 10px;
+            border-radius: 999px;
+        }
+
+        .meta-spec {
+            margin-bottom: 20px;
+            background: rgba(15, 23, 42, 0.55);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 12px;
+            padding: 14px 16px;
+            font-size: 13px;
+            color: #cbd5e1;
+        }
+
+        .meta-spec summary {
+            cursor: pointer;
+            color: #e2e8f0;
+            font-weight: 600;
+            outline: none;
+        }
+
+        .meta-spec summary:hover {
+            color: #38bdf8;
+        }
+
+        .meta-spec pre {
+            margin: 10px 0 0;
+            padding: 12px;
+            background: rgba(2, 6, 23, 0.6);
+            border-radius: 8px;
+            overflow-x: auto;
+            font-size: 12px;
+            line-height: 1.7;
+            color: #a7f3d0;
+        }
+
+        .meta-spec .rule {
+            color: #94a3b8;
+            font-size: 12px;
+            line-height: 1.8;
+            margin-top: 8px;
         }
 
         .upload-area {
@@ -381,12 +437,35 @@
 <body>
 
 <div class="container">
-    <h1>📄 知识库文件导入</h1>
+    <h1>📄 旅途智库 · 旅游知识导入</h1>
+
+    <div class="type-row">
+        <span class="type-chip">景点攻略</span>
+        <span class="type-chip">线路推荐</span>
+        <span class="type-chip">酒店信息</span>
+        <span class="type-chip">美食推荐</span>
+        <span class="type-chip">交通指南</span>
+        <span class="type-chip">文化民俗</span>
+    </div>
+
+    <details class="meta-spec">
+        <summary>元数据填写规范（入库前请确认）</summary>
+        <pre>## 元数据
+- 内容类型：景点介绍
+- 城市：三亚
+- 景点名称：三亚景点推荐
+- 主题：海湾、离岛、西线观光、滨海度假</pre>
+        <div class="rule">
+            内容类型只能是：景点介绍 / 线路推荐 / 酒店信息 / 美食推荐 / 交通指南 / 文化民俗。<br>
+            城市填：云南 / 三亚 / 厦门 / 张家界 / 成都 / 杭州；云南多城市可在「目的地」中列出昆明、大理、丽江。<br>
+            名称字段按类型填写：景点名称 / 线路名称 / 住宿名称 / 文档名称。
+        </div>
+    </details>
 
     <div class="upload-area" id="dropZone" onclick="document.getElementById('fileInput').click()">
         <div class="upload-icon">☁️</div>
-        <div class="upload-text">点击或拖拽文件到此处 (PDF/MD)</div>
-        <input type="file" id="fileInput" class="file-input"  accept=".pdf,.md">
+        <div class="upload-text">点击或拖拽文件到此处（PDF / Markdown，可多选）</div>
+        <input type="file" id="fileInput" class="file-input" accept=".pdf,.md" multiple>
     </div>
 
     <div id="fileList" class="file-list">
@@ -449,8 +528,9 @@
     async function uploadFile(file) {
         // === 核心逻辑优化：动态判断总节点数 ===
         const isPDF = file.name.toLowerCase().endsWith('.pdf');
-        // PDF 需要 9 步（含上传），MD 跳过 pdf_to_md 需要 8 步
-        const totalNodes = isPDF ? 8 : 7;
+        // MD：entry → md_img → 元数据解析 → 切分 → 主体识别 → 向量化 → 入库
+        // PDF：额外经过 pdf_to_md，多 1 步
+        const totalNodes = isPDF ? 9 : 8;
 
         const id = 'file-' + Math.random().toString(36).substr(2, 8);
         const html = `
@@ -501,7 +581,14 @@
                 body: formData
             });
 
-            if (!response.ok) throw new Error('Upload failed');
+            if (!response.ok) {
+                let detail = '';
+                try {
+                    detail = (await response.text() || '').slice(0, 200);
+                } catch (_) {
+                }
+                throw new Error(`HTTP ${response.status} ${detail}`.trim());
+            }
 
             const result = await response.json();
             console.log(result)
@@ -521,7 +608,7 @@
             updateProgressUI(progressWrapper, 0);
 
             const errLog = document.createElement('li');
-            errLog.textContent = "❌ 网络请求失败或服务器异常";
+            errLog.textContent = `❌ 上传失败：${error && error.message ? error.message : '网络请求失败或服务器异常'}`;
             errLog.style.color = "#ef4444";
             logListEl.appendChild(errLog);
         }

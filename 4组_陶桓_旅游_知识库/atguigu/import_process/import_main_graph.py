@@ -7,12 +7,14 @@ graph的调用主接口
 from langgraph.constants import START, END
 from langgraph.graph import StateGraph
 
+from atguigu.config.config import ImportConfig
 from atguigu.import_process.nodes.node_bge_embedding import NodeBGEEmbedding
 from atguigu.import_process.nodes.node_document_split import NodeDocumentSplit
 from atguigu.import_process.nodes.node_entry import NodeEntry
 from atguigu.import_process.nodes.node_import_milvus import NodeImportMilvus
 from atguigu.import_process.nodes.node_item_name_recognition import NodeItemNameRecognition
 from atguigu.import_process.nodes.node_md_img import NodeMDImg
+from atguigu.import_process.nodes.node_metadata_parse import NodeMetadataParse
 from atguigu.import_process.nodes.node_pdf_to_md import NodePDFToMD
 from atguigu.import_process.nodes.node_graph_extract import NodeGraphExtract
 from atguigu.import_process.nodes.node_graph_import import NodeGraphImport
@@ -27,7 +29,7 @@ class MainGraphRunner:
         self.graph=None
 
 
-    def after_entry_router(self,state: ImportGraphState):
+    def after_entry_router(self, state: ImportGraphState):
         is_md_read_enabled = state.get("is_md_read_enabled", False)
         is_pdf_read_enabled = state.get("is_pdf_read_enabled", False)
         if is_md_read_enabled:
@@ -35,17 +37,25 @@ class MainGraphRunner:
         elif is_pdf_read_enabled:
             return NodePDFToMD.name
         else:
-            raise END
+            return END
+
+    def after_item_name_router(self, state: ImportGraphState):
+        """图谱抽取默认关闭，只有显式开启才并行执行。"""
+        if ImportConfig.enable_graph_extract:
+            return [NodeBGEEmbedding.name, NodeGraphExtract.name]
+        return [NodeBGEEmbedding.name]
 
     def add_nodes(self):
         self.builder.add_node(NodeEntry.name,NodeEntry())
         self.builder.add_node(NodePDFToMD.name,NodePDFToMD())
         self.builder.add_node(NodeMDImg.name,NodeMDImg())
+        # 新增：元数据解析，必须在切分之前
+        self.builder.add_node(NodeMetadataParse.name,NodeMetadataParse())
         self.builder.add_node(NodeDocumentSplit.name,NodeDocumentSplit())
         self.builder.add_node(NodeBGEEmbedding.name,NodeBGEEmbedding())
         self.builder.add_node(NodeItemNameRecognition.name,NodeItemNameRecognition())
         self.builder.add_node(NodeImportMilvus.name,NodeImportMilvus())
-        #新增的两个节点
+        #图谱链路节点
         self.builder.add_node(NodeGraphExtract.name,NodeGraphExtract())
         self.builder.add_node(NodeGraphImport.name,NodeGraphImport())
 
@@ -53,14 +63,18 @@ class MainGraphRunner:
         self.builder.add_edge(START,NodeEntry.name)
         self.builder.add_conditional_edges(NodeEntry.name,self.after_entry_router)
         self.builder.add_edge(NodePDFToMD.name,NodeMDImg.name)
-        self.builder.add_edge(NodeMDImg.name,NodeDocumentSplit.name)
+        self.builder.add_edge(NodeMDImg.name,NodeMetadataParse.name)
+        self.builder.add_edge(NodeMetadataParse.name,NodeDocumentSplit.name)
         self.builder.add_edge(NodeDocumentSplit.name,NodeItemNameRecognition.name)
-        self.builder.add_edge(NodeItemNameRecognition.name,NodeBGEEmbedding.name)
         self.builder.add_edge(NodeBGEEmbedding.name,NodeImportMilvus.name)
         self.builder.add_edge(NodeImportMilvus.name,END)
-        #新加的两个节点的三条边
-        self.builder.add_edge(NodeItemNameRecognition.name, NodeGraphExtract.name)
-        self.builder.add_edge( NodeGraphExtract.name, NodeGraphImport.name)
+        # 主体识别之后分流：默认只走向量化，开启图谱时并行抽取
+        self.builder.add_conditional_edges(
+            NodeItemNameRecognition.name,
+            self.after_item_name_router,
+            [NodeBGEEmbedding.name, NodeGraphExtract.name],
+        )
+        self.builder.add_edge(NodeGraphExtract.name, NodeGraphImport.name)
         self.builder.add_edge(NodeGraphImport.name, END)
 
     def run(self, state: ImportGraphState):
@@ -74,7 +88,7 @@ class MainGraphRunner:
 
 if __name__ == "__main__":
     state = {
-        "local_file_path":r"D:\output\doc\hak180产品安全手册.pdf",
+        "local_file_path":r"C:\Users\th\Desktop\4组_陶桓_实战\4组_陶桓_旅游_知识库\旅游数据\景点攻略\三亚景点推荐.md",
         "local_dir":r"D:\output\doc\parse"
     }
     res = MainGraphRunner.create_and_run(state)

@@ -7,11 +7,8 @@ from atguigu.tool.neo4j_client_tool import get_neo4j_driver
 import re
 
 
-# 商品领域关系类型
-RELATION_TYPES = [
-    "由", "制造", "生产", "出品", "发明", "研发", "属于", "包含",
-    "需要", "用于", "提供", "导致", "防止", "指示", "说明"
-]
+# 旅游领域关系类型：统一从 relation_schema 取，避免三处不一致
+from atguigu.config.relation_schema import RELATION_TYPES  # noqa: E402
 
 # 通用停用词
 STOPWORDS = {"有哪些", "有什么", "推荐", "介绍", "怎么", "如何", "哪里", "什么"}
@@ -41,7 +38,7 @@ class NodeSearchGraph(NodeBase):
         graph_limit = max(2, min(18, int(OTHER_COUNT * graph_weight)))
         logger.info(f"graph_weight={graph_weight}, 图检索取 {graph_limit} 条")
 
-        # ===== 2. 使用商品领域关系类型 =====
+        # ===== 2. 使用旅游领域关系类型 =====
         relation_types = RELATION_TYPES
         logger.info(f"使用关系类型: {relation_types}")
 
@@ -72,7 +69,7 @@ class NodeSearchGraph(NodeBase):
             # ===== 5. 如果实体匹配失败，尝试降级匹配 =====
             if not entities and len(candidate_keywords) > 1:
                 logger.info("首次匹配失败，尝试拆分关键词重新匹配...")
-                # 取最短的关键词（通常是核心实体，如 HAK180）
+                # 取最短的关键词（通常是核心实体，如「亚龙湾」）
                 shortest_kw = min(candidate_keywords, key=len)
                 entity_query_short = """
                 MATCH (e:Entity)
@@ -140,14 +137,9 @@ class NodeSearchGraph(NodeBase):
         if match:
             keywords.append(match.group(1))
 
-        # 策略3：提取型号等字母数字组合
+        # 策略3：提取字母数字组合（航班号、线路编号等）
         alnum_parts = re.findall(r'[A-Za-z0-9]+', query)
         keywords.extend(alnum_parts)
-
-        # 变体：HAK180 与图谱中的 "HAK 180" 命名保持一致
-        for part in alnum_parts:
-            if "HAK" in part.upper() and "180" in part:
-                keywords.append("HAK 180")
 
         # 去重，过滤停用词和过短词
         return [kw for kw in set(keywords) if kw not in STOPWORDS and len(kw) >= 2]
@@ -156,7 +148,7 @@ class NodeSearchGraph(NodeBase):
 if __name__ == "__main__":
     node = NodeSearchGraph()
     init_state = {
-        "rewritten_query": "兄弟HAK180烫金机包含哪些部件",
+        "rewritten_query": "昆大丽 6 日经典游途经哪些城市",
         "graph_weight": 0.5
     }
     result = node(init_state)

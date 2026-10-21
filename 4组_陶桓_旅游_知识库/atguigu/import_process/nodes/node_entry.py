@@ -51,7 +51,7 @@ class NodeEntry(NodeBase):
 if __name__ == "__main__":
     node = NodeEntry()
     state = {
-        "local_file_path":r"D:\output\doc\hak180产品安全手册.pdf"
+        "local_file_path":r"C:\Users\th\Desktop\4组_陶桓_实战\4组_陶桓_旅游_知识库\旅游数据\景点攻略\三亚景点推荐.md"
     }
     res = node(state)
     logger.info(json_format( res))

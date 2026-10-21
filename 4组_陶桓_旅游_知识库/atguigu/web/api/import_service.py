@@ -11,7 +11,7 @@ import fastapi
 from fastapi import FastAPI, BackgroundTasks, UploadFile, File
 from starlette.middleware.cors import CORSMiddleware
 
-from atguigu.config.config import MinIoConfig
+from atguigu.config.config import ImportConfig, MinIoConfig
 from atguigu.import_process.import_main_graph import MainGraphRunner
 from atguigu.tool.logger import logger
 from atguigu.tool.minio_client_tool import  get_minio_client
@@ -48,8 +48,8 @@ async def upload_file(background_tasks: BackgroundTasks,file: UploadFile = File(
     add_running_task(task_id, "upload_file")
 
     #2. 将文件保存到服务器临时目录。
-    #2.1定义文件要存放的位置
-    local_dir = rf"D:\output\{datetime.now().strftime('%Y%m%d')}"
+    #2.1定义文件要存放的位置（由 UPLOAD_ROOT 配置，不再硬编码 D:\output）
+    local_dir = str(Path(ImportConfig.upload_root) / datetime.now().strftime('%Y%m%d'))
     #2.2将文件转为path对象,方便操作
     local_dir_obj = Path(local_dir)
     #2.3判断文件是否存在,不存在则创建
@@ -67,17 +67,23 @@ async def upload_file(background_tasks: BackgroundTasks,file: UploadFile = File(
     logger.info(f"文件保存本地成功,地址是:{local_file_path}")
 
     #3. 上传文件到 MinIO 对象存储。
-    #3.1获取minio的客户端
-    minio_client = get_minio_client()
-    #3.2调用minio客户端的添加文件方法
-    #对储存结构的优化,在uuid的前9位后面加上要保存的文件的文件名,增加辨识度
-    file_path = task_id[:13]+Path(local_file_path).name
-    minio_client.fput_object(
-        bucket_name=MinIoConfig.minio_bucket_name,
-        object_name=f"pdf_file/{datetime.now().strftime('%Y%m%d')}/{file_path}/{file.filename}",
-        file_path=local_file_path
-    )
-    logger.info(f"文件上传到minio成功，保存路径为：pdf_file/{datetime.now().strftime('%Y%m%d')}/{task_id}/{file.filename}")
+    # 说明：Markdown 正文不依赖对象存储，只有 PDF 转图中的图片才需要；
+    #       因此 md 直接跳过，其余类型上传失败也只告警，不阻断入库。
+    if Path(local_file_path).suffix.lower() != ".md":
+        try:
+            minio_client = get_minio_client()
+            file_path = task_id[:13] + Path(local_file_path).name
+            minio_client.fput_object(
+                bucket_name=MinIoConfig.minio_bucket_name,
+                object_name=f"pdf_file/{datetime.now().strftime('%Y%m%d')}/{file_path}/{file.filename}",
+                file_path=local_file_path
+            )
+            logger.info(f"文件上传到minio成功，保存路径为：pdf_file/{datetime.now().strftime('%Y%m%d')}/{task_id}/{file.filename}")
+        except Exception as exc:
+            # MinIO 未配置或密钥错误时继续处理正文，避免整个入库失败
+            logger.warning(f"上传 MinIO 失败，已跳过（不影响正文入库）：{type(exc).__name__}: {exc}")
+    else:
+        logger.info("Markdown 文件无需上传对象存储，跳过 MinIO")
 
     # 更新上传文件的状态追踪
     add_done_task(task_id, "upload_file")  # 本质就是把upload_file从正在执行的列表中移除，添加到已完成列表中

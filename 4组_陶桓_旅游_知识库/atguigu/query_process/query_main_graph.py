@@ -1,6 +1,7 @@
 from langgraph.constants import START,END
 from langgraph.graph import StateGraph
 
+from atguigu.config.config import RetrievalConfig
 from atguigu.query_process.nodes.node_answer_output import NodeAnswerOutput
 from atguigu.query_process.nodes.node_item_name_confirm import NodeItemNameConfirm
 from atguigu.query_process.nodes.node_rerank import NodeRerank
@@ -49,8 +50,15 @@ class QueryMainGraphRunner:
         answer = state.get("answer", "")
         if answer:
             return NodeAnswerOutput.name
-        else:
-            return [NodeWebSearchMcp.name,NodeSearchEmbedding.name,NodeSearchEmbeddingHyde.name,NodeSearchGraph.name]
+        # 向量必开；HyDE / 图谱 / 网络搜索按开关启用
+        nodes = [NodeSearchEmbedding.name]
+        if RetrievalConfig.enable_hyde:
+            nodes.append(NodeSearchEmbeddingHyde.name)
+        if RetrievalConfig.enable_graph:
+            nodes.append(NodeSearchGraph.name)
+        if RetrievalConfig.enable_web_search:
+            nodes.append(NodeWebSearchMcp.name)
+        return nodes
 
     def run(self,state):
         if not self.graph:

@@ -27,9 +27,13 @@ class QueryGraphState(TypedDict):
     answer: str  # 最终生成的答案
 
     # 辅助信息
-    item_names: List[str]  # 提取出的商品名称
+    item_names: List[str]  # 主体名称（旅游版为目的地城市集合）
     rewritten_query: str  # 改写后的问题
     history: list  # 历史对话记录
+
+    # 旅游槽位（node_item_name_confirm 产出）
+    query_entities: List[str]  # 问题中提到的景点/片区/酒店/餐厅实体
+    query_content_type: str  # 问题对应的内容类型：景点介绍/线路推荐/酒店信息/美食推荐/交通指南/文化民俗
 
     query_intent: str  # 问题类型: "factual" | "relational" | "mixed"
     intent_confidence: float  # 分类置信度 0~1
