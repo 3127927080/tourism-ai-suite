@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+.venv-eval/
+
+# 评估产物（每次运行都会生成新的时间戳目录）
+eval/results/
+
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+
+
+# IDE and OS
+.idea/

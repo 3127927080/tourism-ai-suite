@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+</head>
+<body>
+    <button id="btn">请点击我发送请求</button>
+    <div id="content"></div>
+
+
+        <script>
+            const btn= document.getElementById('btn');
+            btn.onclick = async function () {
+            // 这次发送的是post请求，传递两个参数全部使用请求体参数
+            res = await fetch("http://localhost:8000/sse02",{
+                method:"POST",
+                headers:{
+                    "Content-Type":"application/json",
+                },
+                body:JSON.stringify({
+                    query:'我爱谁？',
+                    session_id:'abc'
+                })
+            })
+
+            data = await res.json()
+            console.log(data)
+
+            es = new EventSource("http://localhost:8000/stream/"+'abc')
+
+            es.onmessage = function (e) {
+                if (e.data !== "None"){
+                    // document.getElementById("content").innerHTML 读写一体
+                    // 如果你没赋值就是读取，赋值就是写入
+                    document.getElementById("content").innerHTML += e.data + "<br/>"
+                    // document.getElementById("content").innerHTML = document.getElementById("content").innerHTML +e.data
+                }else{
+                    console.log("结束了")
+                    es.close()
+                }
+            }
+
+        }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        </script>
+</body>
+</html>

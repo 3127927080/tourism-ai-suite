@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+</head>
+<body>
+<!--    点击按钮获取input的值作为sessionid传递给后台-->
+    <button id="btn">点击发请求携带sessionid</button>
+    <input type="text" id="ipt" />
+    <div id="content"></div>
+
+    <script>
+        const btn = document.getElementById("btn")
+        btn.onclick = async function (){
+            // 获取input的内容、
+            const session_id = document.getElementById("ipt").value
+            const res = await fetch("http://localhost:8000/sse01?session_id=" + session_id)
+            const data = await res.json()
+            console.log(data)
+
+
+
+        //     订阅sse 就是发请求和后端进行长连接
+            es = new EventSource("http://localhost:8000/stream?session_id=" + session_id) // 订阅了sse服务
+            es.onmessage = function (e){
+                if(e.data !== "None"){
+                    document.getElementById("content").innerHTML += e.data + "<br/>"
+                }else{
+                    es.close()
+                }
+            }
+
+        }
+    </script>
+
+</body>
+</html>

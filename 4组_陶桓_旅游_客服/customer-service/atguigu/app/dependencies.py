@@ -1,0 +1,73 @@
+"""
+依赖注入的类
+"""
+from typing import Annotated
+
+from fastapi import Depends
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from atguigu.app.services.auth import AuthService
+from atguigu.app.services.chat.conversation import ConversationService
+from atguigu.app.services.chat.message import MessageService
+from atguigu.app.services.chat.turn import TurnService
+from atguigu.app.services.admin import AdminMetricsService
+from atguigu.app.repositories.admin import AdminMetricsRepository
+from atguigu.app.services.handoff import HandoffService
+from atguigu.app.services.realtime import RealTimeOutBoxService
+from atguigu.infrastructure.db import get_db_session
+
+
+# 认证服务
+def get_auth_service():
+    return AuthService()
+
+# 会话服务
+def get_conversation_service(session: Annotated[AsyncSession, Depends(get_db_session)]):
+    return ConversationService(session=session)
+
+
+ConversationServiceDep = Annotated[ConversationService, Depends(get_conversation_service)]
+
+# Turn服务
+def get_turn_service(session: Annotated[AsyncSession, Depends(get_db_session)]):
+    return TurnService(session=session)
+
+
+TurnServiceDep = Annotated[TurnService, Depends(get_turn_service)]
+
+# 实时输出服务
+def get_outbox_service(session: Annotated[AsyncSession, Depends(get_db_session)]):
+    return RealTimeOutBoxService(session=session)
+
+
+RealTimeOutBoxServiceDep = Annotated[RealTimeOutBoxService, Depends(get_outbox_service)]
+
+# 消息服务
+def get_message_service(session: Annotated[AsyncSession, Depends(get_db_session)],
+                        conv_service: ConversationServiceDep,
+                        turn_service: TurnServiceDep,
+                        outbox_service: RealTimeOutBoxServiceDep
+
+                        ):
+    return MessageService(session,
+                          conv_service,
+                          outbox_service,
+                          turn_service
+                          )
+
+
+MessageServiceDep = Annotated[MessageService, Depends(get_message_service)]
+
+# 人工工单服务
+def get_handoff_service(session: Annotated[AsyncSession, Depends(get_db_session)]):
+    return HandoffService(session=session)
+
+
+HandoffServiceDep = Annotated[HandoffService, Depends(get_handoff_service)]
+
+# 管理员指标服务
+def get_admin_metrics_service(session: Annotated[AsyncSession, Depends(get_db_session)]):
+    return AdminMetricsService(AdminMetricsRepository(session))
+
+
+AdminMetricsServiceDep = Annotated[AdminMetricsService, Depends(get_admin_metrics_service)]

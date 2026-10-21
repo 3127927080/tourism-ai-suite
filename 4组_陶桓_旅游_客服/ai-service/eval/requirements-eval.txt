@@ -1,0 +1,12 @@
+# 评估专用依赖，不进入服务运行依赖。
+# ragas 版本与 kb_0515 的 eval 保持一致，方便同一批样本横向对比。
+# 安装：uv pip install -r eval/requirements-eval.txt
+#
+# 注意 langchain-community 的版本上限：ragas 0.4.3 在 import 时会引用
+# langchain_community.chat_models.vertexai，该模块在 0.4.x 已被移除，
+# 未锁版本会直接 ModuleNotFoundError: langchain_community.chat_models。
+# 评估依赖建议装在独立虚拟环境（见 eval/README.md），避免影响服务主环境。
+ragas==0.4.3
+langchain-community>=0.3.27,<0.4
+# 方向二：Agent 工具轨迹与 LLM judge。
+deepeval>=2.0

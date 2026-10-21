@@ -1,0 +1,488 @@
+AI Service 调用流程总结（最终版）
+========================================
+对照日期：2026-09-29
+代码范围：本仓库当前实现。Customer Service 只作为调用方契约出现，本文不描述其内部落库细节。
+
+
+一、服务在整条链路里做什么
+----------------------------------------
+Customer Service 持有会话和 Turn，决定某次输入是否仍然有效。
+AI Service（端口 8002）只管理自己的 AgentRun：创建运行、调用模型与工具、校验输出、保存结果，再按状态交回一个事件。
+
+AI Service 不做这些事：
+
+- 不判断 Conversation 版本是否过期。版本比较在 Customer Service 调用 confirm 之前完成。
+- 不执行取消订单、改地址、申请售后。模型最多请求一个页面动作，由用户在前端确认后调用 Ecommerce Service。
+- 不写入 Customer Service 的 messages / conversations。
+
+一次用户发言的跨服务顺序：
+
+```text
+Customer Service                         AI Service
+      |  POST /internal/v1/agent/runs         |
+      |-------------------------------------->|
+      |  run_completed / run_handoff_requested
+      |  / run_decision_prepared / run_failed |
+      |<--------------------------------------|
+      |                                       |
+      |  若是 run_decision_prepared：          |
+      |    快照仍有效 -> POST .../confirm      |
+      |    快照已过期 -> POST .../cancel       |
+      |-------------------------------------->|
+      |  confirm: run_completed               |
+      |  cancel:  204，无事件体                |
+      |<--------------------------------------|
+```
+
+Customer Service 的 `commit_run` 会在 confirm 请求体里带上 `input_revision`。
+AI Service 的 confirm 接口不读取这个字段，也不再比较版本。版本是否过期，只由调用方在发 confirm 之前决定。
+
+
+二、分层与一次请求经过的对象
+----------------------------------------
+依赖方向：路由 → Coordinator / AdminService → Repository → 模型与数据库。
+Agent 执行链挂在 Coordinator 上，不放进路由。
+
+1. 入口
+   - `atguigu/app/app.py`：启动时用 `create_support_agent()` 创建一份共享 Agent，挂到 `app.state.agent`。
+   - `atguigu/app/routers/run.py`：三个内部运行接口。
+   - `atguigu/app/routers/admin.py`：管理端观测接口。
+   - `atguigu/app/dependencies.py`：组装 Session、校验器、执行器、Coordinator，并校验内部服务令牌。
+
+2. 运行编排 `atguigu/agent/harness/run/`
+   - `AgentRunCoordinator`：创建 Run、提交事务、把执行结果映射成状态、处理 confirm / cancel。
+   - `AgentExecutor`：编译消息、调用 Agent、归一化、校验、有限纠错、汇总 Token。
+   - `ContextCompiler`：裁剪历史并转成 LangChain 消息。
+   - `AgentRuntimeContext`：本次运行的只读上下文（run_id、conversation_id、user_id、access_token）。
+   - `AgentExecutionState`：本次 `ainvoke` 内可变，目前只多一个 `active_skill_code`。
+
+3. 能力路由
+   - `skills/`：五个领域 Skill 的目录、说明和工具白名单。
+   - `skills/middleware.py`：每次模型调用前按当前 Skill 过滤可见工具，并禁止并行工具调用。
+   - `dynamic_prompt.py`：每次模型调用前重拼系统提示词。
+   - `tools/skill.py`：`load_skill`，切换当前 Skill。
+
+4. 模型
+   - `llm/adapter.py`：按 `llm_provider` 创建 DeepSeek / Qwen / OpenAI 兼容模型，并从 `structured_response` 取出 `AgentOutput`。
+   - `llm/prompt.py`：`BASE_PROMPT`，只放全局稳定规则。
+   - `llm/output.py`：`ReplyType`、`HandoffRequest`、`PageActionRequest`、`AgentOutput`。
+
+5. 工具与外部只读查询
+   - 七个电商只读工具走 `EcommerceClient`，携带当前用户的 access_token。
+   - `search_knowledge` 走 `KnowledgeQueryService`：本地平台规则 + kb_0515 商品知识。
+   - `ToolExecutor` 用独立 Session 记录参数、执行、校验结构并落库。`load_skill` 不经过它。
+
+6. 服务端可信校验
+   - `AnswerValidator` + `FactChecker`：业务工具全失败时降级；成功结果支撑回复中的编号、金额/数量和状态。
+   - `PageActionValidator` + `ActionCatalog`：页面动作只能来自白名单，具体订单必须已被 `get_order` 成功确认。跳转文案和路径由服务端生成。
+   - 可纠正错误由 `OutputCorrectionRules` 写成反馈，交回模型重生成。
+
+
+三、鉴权
+----------------------------------------
+内部三个运行接口同时要两份凭证：
+
+```text
+X-Internal-Service-Token: <INTERNAL_SERVICE_TOKEN>
+Authorization: Bearer <user-jwt>
+```
+
+- 内部令牌与 `Settings.internal_service_token` 不一致时返回 403。
+- 用户 JWT 由 `AuthService.get_authorized_user(authorization, "customer")` 解析，角色必须是 `customer`，否则 403。令牌缺失或无效返回 401。
+- 解析出的 Bearer 原文作为 `access_token` 交给电商只读工具。AI Service 不在请求体里接收 `user_id`。
+
+管理端三个接口只校验 `role == "admin"` 的用户 JWT，不要求内部服务令牌。角色完全来自 JWT payload，没有单独的管理员白名单。
+
+调用知识库使用另一套令牌 `KNOWLEDGE_SERVICE_TOKEN`，与 `INTERNAL_SERVICE_TOKEN` 分开。
+
+
+四、内部接口与事件
+----------------------------------------
+| 接口 | 方法 | 成功时 |
+|------|------|--------|
+| `/internal/v1/agent/runs` | POST | 返回下面四种事件之一 |
+| `/internal/v1/agent/runs/{run_id}/confirm` | POST | 返回 `run_completed` |
+| `/internal/v1/agent/runs/{run_id}/cancel` | POST | 204，无响应体 |
+
+请求体 `AgentRunRequest`：`conversation_id`、`turn_id`、`messages`（至少 1 条）、`history`（可空）。
+不携带 `user_id`、`input_revision`、`request_id`。
+
+统一事件外壳：
+
+```text
+{
+  "event_type": "...",
+  "event_data": { "run_id": "...", ... }
+}
+```
+
+状态到事件：
+
+```text
+COMPLETED         -> run_completed          event_data 带上已保存的 result
+HANDED_OFF        -> run_handoff_requested  event_data 带上转人工结果
+DECISION_PREPARED -> run_decision_prepared  event_data 只有 run_id，结果留在库里
+FAILED            -> run_failed             event_data 为 {code, message}
+RUNNING           -> 不构建事件
+SUPERSEDED        -> cancel 用 204 表示，不构建事件
+```
+
+`run_completed` 的 result：
+
+```text
+{
+  "message_id": "msg_...",
+  "content": {
+    "text": "...",
+    "reply_type": "ANSWER | CLARIFY | DECLINE",
+    "action": { "label", "description", "href" }   // 仅页面动作确认发布后存在
+  }
+}
+```
+
+`run_handoff_requested` 的 result：
+
+```text
+{
+  "reason_code": "USER_REQUESTED | COMPLAINT | RISK_REVIEW",
+  "summary": "给人工客服的摘要",
+  "message": "给用户看的回复"
+}
+```
+
+`run_failed` 的对外文案固定为「AI Service 处理失败」。稳定错误码放在 `code`，异常原文只写入 `agent_runs.error`。
+
+confirm / cancel 的 HTTP 映射（Coordinator 抛语义异常，路由转换）：
+
+```text
+Run 不存在                         -> 404
+Run 不属于当前 JWT 用户            -> 403
+confirm 时状态不是 DECISION_PREPARED -> 409
+cancel 时状态不是 DECISION_PREPARED  -> 不改库，仍返回 204
+```
+
+
+五、AgentRun 状态机
+----------------------------------------
+```text
+[*] --> RUNNING
+RUNNING --> COMPLETED          普通回复、澄清、拒绝，以及工具次数超限后的固定拒绝
+RUNNING --> HANDED_OFF         转人工，直接发布，不经过确认
+RUNNING --> DECISION_PREPARED  带页面动作的普通回答，结果已生成，等待调用方确认
+RUNNING --> FAILED             执行失败
+DECISION_PREPARED --> COMPLETED    confirm
+DECISION_PREPARED --> SUPERSEDED   cancel
+```
+
+`AgentRunState` 枚举里有 `SUPERSEDED`，当前唯一写入路径是 `cancel_run`：状态已经是 `DECISION_PREPARED` 时改成 `SUPERSEDED`。
+`start_run` 的异常处理只落到 `FAILED` 或上面的正常终态。`cancel_run` 遇到其他状态直接返回，不改库。
+因此 `RUNNING → SUPERSEDED` 是设计预留，当前代码没有这条转移。
+
+回复类型到状态：
+
+```text
+ANSWER 且 page_action 为空    -> COMPLETED
+ANSWER 且 page_action 非空    -> DECISION_PREPARED
+CLARIFY / DECLINE             -> COMPLETED
+REQUEST_HANDOFF               -> HANDED_OFF
+```
+
+只有「带页面动作的 ANSWER」会停在 `DECISION_PREPARED`。
+该状态不写 `finished_at`。confirm 写成 `COMPLETED` 并补 `finished_at`；cancel 写成 `SUPERSEDED` 并补 `finished_at`。
+confirm 只推进状态，不重查订单、库存或知识，也不改已保存的 result。
+
+页面动作白名单（文案和路径都由服务端生成，模型只提交动作编码和可选订单号）：
+
+```text
+BROWSE_ORDERS       /me
+OPEN_ORDER_DETAIL   /me/orders/{order_id}
+CANCEL_ORDER        /me/orders/{order_id}/cancel
+EDIT_ADDRESS        /me/orders/{order_id}/address
+APPLY_AFTER_SALE    /me/orders/{order_id}/after-sale
+VIEW_AFTER_SALES    /me/orders/{order_id}?section=after-sales
+```
+
+`BROWSE_ORDERS` 禁止带 `resource_id`。其余动作必须带订单号，且本次 Run 里要有一次成功的 `get_order` 对上该订单号。
+
+
+六、start_run 内部步骤
+----------------------------------------
+1. 路由完成内部令牌和 customer JWT 校验，取出 `user_id` 与 `access_token`。
+
+2. Coordinator 插入一条 `AgentRun`：
+   `state=RUNNING`，写入 `conversation_id`、`user_id`、`turn_id`、`model_name`、`prompt_version`、`input_context`。
+   先 commit，使后续工具调用能引用这个 `run_id`。
+
+3. 组装 `AgentRuntimeContext`，调用 `AgentExecutor.execute`。
+
+4. `ContextCompiler.compile_messages`：
+   - 历史先按条数截到 `history_message_limit`（默认 30，上限 60）；
+   - 再从最新往前按 `history_character_budget`（默认 12000）截断；
+   - 截完后从第一条 `user` 消息开始保留，避免历史以 AI 消息起头；
+   - 当前 Turn 的多条消息合成一条 HumanMessage。
+   文本消息取 `content.text`；对象消息原样 JSON 化，并标明这是对象。
+
+5. Executor 创建本次 Run 共用的 `UsageMetadataCallbackHandler`，进入纠错循环。
+   次数来自 `agent_correction_limit`（默认 2，且至少为 1）：第 1 次是首发，之后最多再纠错 `limit - 1` 次。
+
+6. 每次尝试：
+   a. `agent.ainvoke({"messages": ...}, context=runtime_context, config={"callbacks": [...]})`。
+      共享 Agent 在 `factory.py` 装配，中间件顺序固定为：
+      `support_prompt` → `SkillScopeMiddleware` → `ToolCallLimitMiddleware(run_limit=8, exit_behavior="error")`。
+      结构化输出使用 `ToolStrategy(AgentOutput)`。
+   b. `ModelAdapter.normalize_output` 从 `structured_response` 得到 `AgentOutput`。
+   c. `AgentOutputValidator.validate` 读取本 Run 已落库的工具快照，做回答校验和页面动作校验，得到 `ValidatedAgentOutput`。
+
+7. 循环正常结束后，把本次 Run 全部模型调用的 input/output token 合并进结果。
+   Coordinator 写入 `input_tokens`、`output_tokens`，再按回复类型映射 `state` 和 `result`。
+
+8. 无论成功或失败，都写入 `latency_ms` 并再次 commit，然后 `build_response_event`。
+   执行异常不会变成 HTTP 500：Coordinator 把 Run 收成 `FAILED`，返回 `run_failed`。
+   失败路径不回填 token；token 只在执行器正常返回后写入。
+
+
+七、Agent 内部：Skill、提示词、工具
+----------------------------------------
+模型看不到全部工具。`SkillScopeMiddleware` 在每次模型调用前改请求：
+
+- `active_skill_code` 为空：只保留 `load_skill`，并在动态提示词里给出五个 Skill 的索引。
+- 已激活：保留 `load_skill` 加上该 Skill 的白名单工具，因此同一次 `ainvoke` 里可以切换领域。
+- 始终设置 `parallel_tool_calls=False`，一次模型响应只调用一个工具。
+
+`load_skill` 从目录取出固定的 `SkillDefinition`，用 `Command` 写回 `active_skill_code`，并把技能说明作为 ToolMessage 追加到轨迹。
+它属于 `GUIDANCE`，不进 `ToolExecutor`，因此不会出现在 `agent_tool_calls` 里。
+
+五个 Skill：
+
+```text
+product-service       search_products, get_product, get_product_stock, search_knowledge
+order-service         list_orders, get_order
+logistics-service     list_orders, get_order, get_logistics
+policy-service        search_knowledge
+after-sales-service   get_order, list_after_sales
+```
+
+分工：`policy-service` 解释平台规则；`after-sales-service` 查用户真实售后记录。商品用法和说明书走 `product-service` 里的 `search_knowledge`，不走商品详情接口。
+
+每次模型调用的系统提示词由三块拼成：
+
+```text
+BASE_PROMPT
++ 当前 Skill guidance（未激活时改为 Skill 索引和「先 load_skill」）
++ ACTION_CATALOG 的页面动作索引
+```
+
+`BASE_PROMPT` 只约束职责边界、工具结果才是事实来源、四种回复类型、何时才能请求页面引导，以及不得承诺稍后查询或执行写操作。
+
+电商只读工具与路径（均 GET，基址 `ecommerce_base_url`，默认 `http://127.0.0.1:8001/api/v1`）：
+
+```text
+search_products     GET /products?query=
+get_product         GET /products/{product_id}
+get_product_stock   GET /products/{product_id}/stock
+list_orders         GET /orders
+get_order           GET /orders/{order_id}
+get_logistics       GET /orders/{order_id}/logistics
+list_after_sales    GET /after-sales[?order_id=]
+```
+
+这些工具和 `search_knowledge` 都经过 `ToolExecutor`：
+
+1. 用独立 Session 先插入 `AgentToolCall`（run_id、tool_call_id、tool_name、arguments）并 commit。
+2. 执行查询。电商调用抛出的任何异常，包括 4xx/5xx，都记为 `failure_type=SERVICE_CALL`，`success=false`。
+3. 电商返回能通过外层 `ToolResult` 校验、且 `success=false` 的结果，记为 `failure_type=BUSINESS`。
+4. `success=true` 再按该工具的数据模型校验 `data`；结构不符记为 `failure_type=CONTRACT`。
+5. 把 result、success、latency_ms 写回同一条记录。无论成败都落库。
+6. 把 JSON 文本交回模型。
+
+`failure_type` 在 `ToolResult` 里，随 result JSON 保存。`agent_tool_calls` 表没有单独的 `failure_type` 列。
+
+工具次数达到 8 次时，中间件在真正执行前抛出 `ToolCallLimitExceededError`。
+Executor 把它收成固定 `DECLINE`：「本次查询调用业务工具次数过多，暂时无法完成查询。」
+这次 Run 仍是 `COMPLETED`。被拦截的那次调用不会写入 `agent_tool_calls`。
+
+
+八、知识查询
+----------------------------------------
+`search_knowledge` 的类别是 `KNOWLEDGE`。它不访问 Ecommerce Service。
+
+`KnowledgeQueryService.search(query)`：
+
+1. query 空白：返回空列表，不附带平台规则。
+2. query 非空：先放上 3 条本地平台规则（七天无理由、退款到账、退货寄回）。来源是「平台退货规则」或「平台退款规则」。
+3. 再请求 kb_0515：`POST {knowledge_base_url}/knowledge/search`，默认 `http://127.0.0.1:8005/api/v1/knowledge/search`。
+   请求头 `X-Internal-Service-Token` 使用 `knowledge_service_token`。body 为 `{"query", "top_k"}`，`top_k` 默认 5。
+4. 检索成功：把商品知识条目追加到平台规则后面。缺 `knowledge_id` 或正文的条目丢弃。
+   商品知识的 `knowledge_id` 由知识库按正文哈希生成（`KB_` + sha256 前 12 位），是内容指纹，不是跨入库版本的文档主键。
+   `source` 为「知识库文档」或「知识图谱」。
+5. 知识库超时、连接失败、4xx/5xx，或未配置知识库令牌：服务内捕获，保留 3 条平台规则，`message="暂时无法查询商品说明"`。
+6. 知识库能连通但商品名无法确认：原样带回知识库的澄清 `message`，`items` 仍至少含平台规则。
+7. 知识库能连通、商品知识为空、且响应里没有 `message`：Service 的 `message` 保持空字符串，`items` 仍是那 3 条平台规则。Service 不在这里补提示语。
+
+`search_knowledge` 拿到 `KnowledgeSearchResult` 之后，才决定交给模型的 `ToolResult.message`：
+
+```text
+Service.message 非空          -> 原样使用（失败提示或知识库澄清话术）
+Service.message 为空且有条目  -> 工具函数写成「已找到相关知识内容」
+Service.message 为空且无条目  -> 工具函数写成「未找到相关知识内容」
+```
+
+因此「知识库连通但商品内容为空」时，模型看到的兜底句是工具函数生成的「已找到相关知识内容」，不是 `KnowledgeQueryService.search` 的返回值。
+「未找到相关知识内容」只出现在 Service 既没有 message、也没有条目时；非空 query 会先附上平台规则，通常走不到这一支。空白 query 会走到这一支。
+
+工具函数再把结果包成 `success=true` 的 `ToolResult`。知识库宕机时，这次工具调用在审计上仍是成功；平台规则可用，商品说明不可用。
+`message` 是可转述提示，不是知识条目。提示词要求：商品名无法确认时转述澄清话术；看到「暂时无法查询商品说明」时不得编造用法或说明书。这层约束目前写在工具描述和 Skill guidance 里，校验器不强制执行。
+
+
+九、输出校验与纠错
+----------------------------------------
+`AgentOutput` 先过模型侧组合校验：
+
+- `REQUEST_HANDOFF` 必须带 `handoff_request`，其他类型禁止带。
+- 只有 `ANSWER` 可以带 `page_action_request`。
+- `PageActionRequest` 禁止多余字段；订单列表与具体订单对 `resource_id` 的要求见第五节。
+
+服务端再做第二层校验。`AgentOutputValidator` 读出本 Run 的工具快照后：
+
+1. `AnswerValidator` 只看 `BUSINESS` 类工具。
+   - 有业务调用且全部失败：若失败类型全是 `BUSINESS`，改写成 `ANSWER`，正文用最后一条业务失败消息，并清掉转人工和页面动作。
+   - 其中夹有 `SERVICE_CALL` 或 `CONTRACT`：改写成固定 `DECLINE`，提示暂时无法取得可靠业务信息。
+   - 存在成功业务调用：用 `FactChecker` 检查回复里的三类事实。无法被成功工具参数或结果支撑的事实，抛 `UNSUPPORTED_FACT`。
+     编号：`ORDER` / `PRODUCT` / `AS` 加连接符的资源编号。
+     数字：两条独立正则，命中任一即纳入。一条认标签词（金额、总价、价格、库存、数量，后面可跟「为/是/有/剩余/还剩/：/:」），所以「库存还剩10」这种没有货币符号和单位的表述也会被提取；另一条认 `¥`/`￥` 或单位「元、件、个、台、套」。
+     状态词，必须与下面 12 个字面量之一相同：已支付、待发货、已发货、已完成、已取消、已退款、运输中、已签收、待处理、已通过、处理中、已拒绝。
+   - `KNOWLEDGE` 和 `GUIDANCE` 不参与这套降级和事实核查。
+
+2. `PageActionValidator` 把模型的动作请求换成服务端 `PageAction`。
+   订单未被成功的 `get_order` 确认时抛 `UNVERIFIED_ACTION_RESOURCE`。
+
+可纠正错误码：`MODEL_OUTPUT_INVALID`、`UNSUPPORTED_FACT`、`UNVERIFIED_ACTION_RESOURCE`。
+终态错误码：`MODEL_CALL_FAILED`、`OUTPUT_VALIDATION_FAILED`、`AGENT_EXECUTION_FAILED`。
+
+纠错循环里的分支：
+
+```text
+ToolCallLimitExceededError
+    -> 固定 DECLINE，本轮 Run 正常结束
+
+AgentOutputValidationError
+    -> 还没到最后一次，且错误码可纠正：保留本轮 messages，追加一条纠错 SystemMessage，再调用模型
+    -> 已是最后一次，或不可纠正：包成 AgentExecutionError，结束 Run
+
+其他模型/Agent 调用异常
+    -> AgentExecutionError(MODEL_CALL_FAILED)，不重试
+
+structured_response 不符合 AgentOutput
+    -> MODEL_OUTPUT_INVALID，可进入纠错
+
+校验器内部的未知异常
+    -> OUTPUT_VALIDATION_FAILED，不重试
+```
+
+Coordinator 收到 `AgentExecutionError` 时用其 `code`；收到其他未分类异常时用 `AGENT_EXECUTION_FAILED`。两种都落成 `FAILED`。
+
+
+十、confirm 与 cancel
+----------------------------------------
+两条接口都先按 `run_id` 读取 Run，再核对 `run.user_id` 与当前 customer 一致。
+
+confirm：
+
+- 状态必须是 `DECISION_PREPARED`，否则 409，不改库。
+- 通过后写成 `COMPLETED`，写入 `finished_at`，commit。
+- 返回 `run_completed`，`event_data` 就是 start_run 时已经保存的 result（含页面动作）。
+- 不重查电商或知识库，不重新跑模型。
+
+cancel：
+
+- 状态是 `DECISION_PREPARED` 时写成 `SUPERSEDED` 并 commit。
+- 其他已存在且属于该用户的状态保持原样。
+- 接口始终以 204 结束（404/403 除外）。
+
+因此重复 confirm 不是幂等成功，而是 409。重复 cancel 在结果已经发布或已经作废后保持 204。
+
+
+十一、管理端观测
+----------------------------------------
+三个接口都要求 admin JWT：
+
+```text
+GET /api/v1/admin/metrics
+    agent_runs 总数、latency_ms 平均值、input_tokens / output_tokens 求和
+
+GET /api/v1/runs?limit=50
+    按 started_at 倒序。字段：id、conversation_id、state、model_name、latency_ms、input_tokens、output_tokens
+    不返回工具调用，也不返回 result
+
+GET /api/v1/runs/{run_id}
+    run 概要（id、state、prompt_version、outcome、input_tokens、output_tokens）
+    加上该 Run 全部工具调用：tool_call_id、tool_name、arguments、result、success、latency_ms
+    调用尚未写完结果时，result 与 success 为 null
+```
+
+列表和详情都不返回 `input_context`。`load_skill` 不会出现在工具调用列表里。
+
+
+十二、运行配置（与调用链直接相关）
+----------------------------------------
+```text
+AI_DATABASE_URL              AI Service 自己的 PostgreSQL
+API_HOST / API_PORT          默认 0.0.0.0:8002
+INTERNAL_SERVICE_TOKEN       与 Customer Service 一致
+JWT_SECRET / JWT_ALGORITHM   与 Customer Service、Ecommerce Service 一致
+LLM_PROVIDER                 openai_compatible | deepseek | qwen
+LLM_MODEL / LLM_API_KEY / LLM_BASE_URL
+LLM_THINKING_MODE            disabled | enabled，默认 disabled
+                             只在 llm_provider 为 deepseek 或 qwen 时写入请求体
+                             openai_compatible 分支不读取该配置
+LLM_TIMEOUT_SECONDS          默认 30
+ECOMMERCE_BASE_URL           默认 http://127.0.0.1:8001/api/v1
+ECOMMERCE_TIMEOUT_SECONDS    默认 8
+KNOWLEDGE_BASE_URL           默认 http://127.0.0.1:8005/api/v1
+KNOWLEDGE_TIMEOUT_SECONDS    默认 45
+KNOWLEDGE_TOP_K              默认 5，范围 1–10
+KNOWLEDGE_SERVICE_TOKEN      空则商品知识客户端直接失败，平台规则仍返回
+HISTORY_MESSAGE_LIMIT        代码默认 30，范围 1–60。Settings 会读环境变量，.env.example 未列出
+HISTORY_CHARACTER_BUDGET     代码默认 12000。Settings 会读环境变量，.env.example 未列出
+PROMPT_VERSION               默认 customer-support-v1，写入每条 Run。.env.example 已列出
+AGENT_CORRECTION_LIMIT       代码默认 2，即 1 次首发 + 1 次纠错。Settings 会读环境变量，.env.example 未列出
+```
+
+模型在进程启动时创建一次。`llm_base_url` 没有代码默认值，必须来自环境。
+`Settings` 使用 `extra="ignore"`。`.env.example` 里的 `LLM_MAX_RETRIES=1` 没有对应字段，加载时被丢弃，运行时不会重试模型调用。
+启动命令：项目根目录 `uv run python -m atguigu.main`。
+
+
+十三、各层分工（读代码时按这个边界看）
+----------------------------------------
+- 路由：路径、Header、鉴权、把语义异常转成 HTTP 状态码。
+- Coordinator：Run 从创建到终态的事务和状态。它调用执行器，不写 SQLAlchemy 查询，不抛 HTTPException。
+- Executor：单次 Run 内的模型调用、归一化、校验和纠错。它不决定 confirm/cancel。
+- Skill 中间件和动态提示词：插在每次模型调用之前，不改变 Executor 与 Coordinator 的边界。
+- Repository：查询和 `add`。Run 的 commit 在 Coordinator；工具记录的 commit 在 `ToolExecutor` 自己的 Session。
+- 校验器：只根据已经落库的工具快照判断回复能不能信，不重新请求电商或知识库。
+
+
+十四、当前调用链的行为边界
+----------------------------------------
+下面这些是现有代码的实际行为，读流程时按这个理解，不要假设已经做了额外防护。
+
+1. 回答与工具快照一致，不保证与确认发布时的真实业务状态一致。
+   工具在执行期查询；校验用的是当时写入的 `AgentToolCall`；confirm 只改状态。
+   查询时订单可取消、确认前已经发货，页面动作仍会按当时结果发布。
+
+2. 知识失败不会走进 `AnswerValidator` 的全失败降级。
+   知识库不可用时工具结果通常仍是 `success=true`，并带平台规则和「暂时无法查询商品说明」。
+   模型是否把商品说明编出来，目前靠提示词约束。
+
+3. `FactChecker` 的提取范围以第九节为准：资源编号、标签数字、单位或货币数字、以及列出的 12 个状态词。
+   知识正文里的期限和条件（例如「七天」）不在这套规则里。
+
+4. 工具超限发生在执行前，被拒绝的调用没有 `AgentToolCall` 记录。
+
+5. 电商接口的 4xx/5xx 在 AI Service 里一律归为 `SERVICE_CALL`。
+   只有 HTTP 成功且外层 `success=false` 才归为 `BUSINESS`。
+
+6. 没有备用模型。模型调用失败直接结束本次 Run。
+
+7. 一次 Run 没有总超时。电商单次 8 秒，知识库单次 45 秒，模型单次 30 秒，它们各自计时。

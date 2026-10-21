@@ -1,0 +1,6 @@
+# 先安装项目依赖（uv sync 或 uv pip install -e .）。
+# 固定已验证的 Ragas 版本，确保五项指标及 LangChain 包装接口一致。
+ragas==0.4.3
+# ragas 0.4.3 仍导入 langchain_community.chat_models.vertexai，
+# 该模块在 langchain-community 0.4.x 中已移除，因此固定到 0.3.30。
+langchain-community==0.3.30

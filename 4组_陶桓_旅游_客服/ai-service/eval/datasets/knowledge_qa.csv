@@ -1,0 +1,7 @@
+case_id,scene,question,ground_truth,expected_reply_type,expected_action_code,expected_tools,gold_knowledge_ids,forbidden_phrases,must_include,history,user_id,note
+kb_rule_001,policy,七天无理由退货从哪天开始计算？,符合平台七天无理由退货范围的商品，可以在签收后七天内申请退货，商品应保持完好。,ANSWER,,search_knowledge,KNOWLEDGE_AFTER_SALE_001,,七天,,,本地平台规则-七天无理由
+kb_rule_002,policy,退款审核通过后钱多久能退回来？,退款申请审核通过后，款项将原路退回支付账户，到账时间受支付机构处理进度影响。,ANSWER,,search_knowledge,KNOWLEDGE_AFTER_SALE_002,,原路退回,,,本地平台规则-退款到账
+kb_rule_003,policy,退货审核通过后需要在多长时间内把商品寄回？,退货申请审核通过后，请在售后页面规定的时间内寄回商品；逾期未寄回，申请可能自动关闭。,ANSWER,,search_knowledge,KNOWLEDGE_AFTER_SALE_003,,寄回,,,本地平台规则-寄回时限
+kb_rule_004,policy,我不喜欢了还能退吗？,符合七天无理由退货范围的商品，可以在签收后七天内申请退货，商品应保持完好。,ANSWER,,search_knowledge,KNOWLEDGE_AFTER_SALE_001,,七天,"[{""role"":""user"",""content"":""我昨天刚签收了订单里的商品""},{""role"":""ai"",""content"":""好的，请问您遇到什么问题了？""}]",,多轮上下文承接样本
+kb_rule_005,knowledge_missing,退货运费由谁承担？,,DECLINE,,search_knowledge,,运费由卖家承担|运费由平台承担|运费由买家承担|卖家包邮,,,,平台规则未覆盖运费归属
+kb_rule_006,knowledge_missing,小满X900空气炸锅的保修期是几年？,,DECLINE,,search_knowledge,,保修期为一年|保修期为两年|保修期为三年|三年保修,,,,商品知识缺失，不得编造

@@ -1,0 +1,49 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# 虚拟环境
+.venv/
+.venv-*/
+venv/
+env/
+
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+*.local.*
+.claude/settings.local.json
+
+# IDE and OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 运行产物与日志
+*.log
+logs/
+tmp/
+temp/
+eval/results/
+dist/
+build/
+*.egg-info/
+
+# 模型权重与大型缓存
+*.bin
+*.safetensors
+*.gguf
+*.pt
+*.pth
+*.onnx
+.cache/
+models/
