@@ -1015,13 +1015,16 @@ RELATION_TYPES = ["位于", "属于", "包含", "途经", "推荐",
 
 ### 9.2 DoD
 
-1. 36 份文档（30 + 6 文化民俗）全部入库成功，无 failed
-2. `(city, content_type)` 统计 6 × 6 无空洞
-3. 5 类问题各 2 条人工验证通过，返回片段带 `content_type/city/source_file`
-4. `eval/eval.py --limit 50` 跑完，5 项指标写入 `result.csv`
-5. 旧集合 `kb_chunks` / `kb_item_names` 未被修改
-6. 8003 `/query` 与 SSE 行为、8004 `/upload` 行为不退化
-7. 8005 无 token 401、有 token 200，新旧请求均可用
+| # | 项 | 状态 | 证据 |
+|---|---|---|---|
+| 1 | 36 份文档（30 + 6 文化民俗）全部入库成功，无 failed | ✅ | `chunks_tourism_v1` 1271 条；6 城市 × 6 类无空缺 |
+| 2 | `(city, content_type)` 统计 6 × 6 无空洞 | ✅ | 36 份文档矩阵完整 |
+| 3 | 5 类问题各 2 条验证通过，返回片段带 `content_type/city/source_file` | ✅ | `tools/smoke_query.py` 8 项断言全 PASS；8005 实测返回元数据齐全 |
+| 4 | `eval/eval.py --limit 50` 跑完，5 项指标写入 `result.csv` | ✅ | 50/50 success，见 `eval/REPORT.md` |
+| 5 | 旧集合 `kb_chunks` / `kb_item_names` 未被修改 | ✅ | 实测 1241 / 34 行；代码无旧集合读写路径 |
+| 6 | 8003 `/query` 与 SSE 行为不退化 | ✅ | SSE 实测：progress × 11、delta × 280、final × 1，答案含【参考来源】；事件类型未变 |
+| 6b | 8004 `/upload` 行为不退化 | ⏸ 未验 | 本期未跑上传链路（依赖 MinerU/视觉额度），留待后续 |
+| 7 | 8005 无 token 401、有 token 200，新旧请求均可用 | ✅ | 401 / 200 实测；新请求 `city + content_type` 过滤生效，`duration_days/estimated` 字段正常 |
 
 ### 9.3 验收命令
 
@@ -1188,7 +1191,7 @@ uv run python eval/eval.py --limit 50
 ### 数据现状
 
 ```text
-chunks_tourism_v1       1307 条
+chunks_tourism_v1       1271 条（已清理 36 条空正文脏 chunk，原 1307）
 item_name_tourism_v1     228 行别名
 文档                     36 份（6 城市 × 6 内容类型，无空缺）
 线路字段                 6/6 有天数、预算、estimated=true
@@ -1203,9 +1206,29 @@ PDF 链路实测通过：MinerU 转换 → 图片理解 → 元数据 → 切分
 3. `qwen3-vl-flash` 不存在 / `qwen3-vl-*` 额度耗尽 → 视觉模型改 `qwen3.8-omni-flash`
 4. 实体类型缺「民俗项目」→ 民俗文档抽不到实体，已补并入白名单
 
-### 待办（明天：查询链路 + 统一验证）
+### 已完成（2026年10月22日：查询链路验证 + 评估）
 
-1. 查询侧已改造但未在真实数据上验证：`node_item_name_confirm` / `node_search_embedding` / `node_rerank` / 两个 graph / `knowledge_service` / `node_answer_output`
-2. 启动 8003 / 8005，用 36 份数据做检索验证（城市过滤、content_type 过滤、实体过滤、回退逻辑）
-3. `eval/qa.csv` 仍是电商 QA，需替换为 50 题旅游 QA 并跑 Ragas
-4. 图谱链路默认关闭，Neo4j 仍是旧商品图；如需启用要先重放入库
+1. **检索层冒烟**：新增 `tools/smoke_query.py`，8 项断言全 PASS —— 城市过滤、`content_type` 过滤、实体过滤、两级回退、全局检索、槽位识别（三亚→三亚、大理→云南、无目的地降级）、RRF+Rerank 元数据透传。
+2. **修掉 2 个真实缺陷**：
+   - `node_search_embedding`：`json_contains(entities, '"亚龙湾"')` 多包一层双引号导致实体过滤永不命中（改为 `'亚龙湾'`，实测 0 → 7 条）；
+   - `node_document_split`：首个标题在首行时切出空正文 chunk（36 份文档各 1 条），已修切分逻辑并清理存量（1307 → 1271）。
+3. **演示数据旅游化**：`node_rrf.py` / `node_web_search_mcp.py` 清除 HAK180 残留。
+4. **语言模型凭据分离**：新增 `LLM_API_KEY` / `LLM_API_BASE`（未配置回退阿里云），视觉走 `VL_API_*`；rerank / MCP 仍走阿里云。8 个调用点已切换。
+5. **评估集与校验**：`eval/qa.csv` 换为 50 题旅游 QA（5 类 × 10，6 城市轮转）；新增 `eval/validate_qa.py`，50/50 可溯源。
+6. **Ragas 全量评估（50/50 success）**，判分模型 `deepseek-v4.1-flash`（关闭思考）：
+
+| faithfulness | answer_relevancy | context_precision | context_recall | answer_correctness |
+|---|---|---|---|---|
+| 0.7901 | 0.8104 | 0.8221 | 0.7400 | 0.5756 |
+
+7. **答案提示词收紧**：一句结论 + 2–3 条要点、≤200 字、禁小标题/表格/嵌套列表；实测回答均值 95 字（改造前 700+），`answer_correctness` 由 0.47–0.50 升至 0.58。
+8. **eval 支持补跑**：`--only-ids 31-50` / `--resume`，中断后无需整批重来。
+9. **历史批次归档**：`eval/archive_ecommerce/`（电商 QA）、`eval/archive_qwen38/`（qwen 判分批次，额度耗尽，含 README 说明）。
+
+详情见 `4组_陶桓_旅游_知识库/eval/REPORT.md`。
+
+### 仍待处理
+
+1. 线路类召回偏弱（`answer_relevancy` 0.68、`context_recall` 0.63）：多天行程压缩成单条 chunk，覆盖不全；可考虑线路问题强过滤 `content_type=线路推荐`。
+2. 多要素并列题（厦门觅食分工、三亚机场接驳等）`answer_correctness` 偏低（0.20–0.30）：属回答长度约束与题型张力，可放宽字数或拆题。
+3. 图谱链路默认关闭，Neo4j 仍是旧商品图；如需启用要先重放入库。
