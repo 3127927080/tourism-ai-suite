@@ -142,6 +142,8 @@ Copy-Item .env.example .env
 
 `.env` 需配置：`ALIYUN_API_KEY` / `ALIYUN_API_BASE`、`MINIO_*`、`BGE_M3_PATH`、`MILVUS_URL`、`MONGO_URL`、`NEO4J_*`、`RERANK_*`、`MINERU_TOKEN`、`KNOWLEDGE_SERVICE_TOKEN`、`UPLOAD_ROOT`。
 
+语言模型可独立于阿里云：设置 `LLM_API_KEY` / `LLM_API_BASE` 后，答案生成、槽位识别、元数据解析、三元组抽取与 Ragas 判分改走该供应商；留空则回退 `ALIYUN_*`。Rerank、视觉理解、MCP 网络搜索不受影响，仍走阿里云凭据。
+
 前置中间件：Milvus、Neo4j、MongoDB、MinIO 全部连通；BGE-M3 可加载（GPU）。
 
 ### 5.2 启动服务

@@ -40,8 +40,8 @@ class NodeSearchEmbeddingHyde(NodeBase):
             model=LLMConfig.item_model,
             model_provider="openai",
             temperature=LLMConfig.llm_default_temperature,
-            api_key=LLMConfig.aliyun_api_key,
-            base_url=LLMConfig.aliyun_api_base
+            api_key=LLMConfig.chat_api_key,
+            base_url=LLMConfig.chat_api_base
         )
         messages = [
             {"role": "user", "content": HYDE_PROMPT.format(rewritten_query=rewritten_query)}

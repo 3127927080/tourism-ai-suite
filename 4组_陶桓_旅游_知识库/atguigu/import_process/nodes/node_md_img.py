@@ -92,8 +92,8 @@ class NodeMDImg(NodeBase):
         llm = init_chat_model(
             model=LLMConfig.vl_model,
             model_provider="openai",
-            api_key=LLMConfig.aliyun_api_key,
-            base_url=LLMConfig.aliyun_api_base,
+            api_key=LLMConfig.vl_api_key,
+            base_url=LLMConfig.vl_api_base,
             temperature=LLMConfig.llm_default_temperature
         )
         for image_with_context in image_with_context_list:

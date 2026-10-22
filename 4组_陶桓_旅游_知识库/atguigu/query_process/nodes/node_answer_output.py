@@ -105,8 +105,8 @@ class NodeAnswerOutput(NodeBase):
         llm = init_chat_model(
             model=LLMConfig.llm_default_model,
             temperature=LLMConfig.llm_default_temperature,
-            api_key=LLMConfig.aliyun_api_key,
-            base_url=LLMConfig.aliyun_api_base,
+            api_key=LLMConfig.chat_api_key,
+            base_url=LLMConfig.chat_api_base,
             model_provider="openai"
         )
 

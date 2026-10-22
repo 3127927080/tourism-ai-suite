@@ -34,8 +34,8 @@ class NodeGraphExtract(NodeBase):
         llm = init_chat_model(
             model=LLMConfig.llm_default_model,
             model_provider="openai",
-            api_key=LLMConfig.aliyun_api_key,
-            base_url=LLMConfig.aliyun_api_base,
+            api_key=LLMConfig.chat_api_key,
+            base_url=LLMConfig.chat_api_base,
             temperature=0.3,
         )
 

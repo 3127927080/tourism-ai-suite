@@ -12,8 +12,23 @@ class MineruConfig:
 
 
 class LLMConfig:
+    # ============================================================
+    # 阿里云（DashScope）凭据：rerank、视觉理解仍走这里
+    # ============================================================
     aliyun_api_key = os.getenv("ALIYUN_API_KEY")
     aliyun_api_base = os.getenv("ALIYUN_API_BASE")
+
+    # ============================================================
+    # 语言模型凭据：答案生成、槽位识别、元数据解析、三元组抽取、Ragas 判分
+    # 可指向其他供应商（如 DeepSeek）；未配置时回退阿里云，行为与改造前一致
+    # ============================================================
+    chat_api_key = os.getenv("LLM_API_KEY") or aliyun_api_key
+    chat_api_base = os.getenv("LLM_API_BASE") or aliyun_api_base
+
+    # 视觉模型凭据：默认跟随阿里云；如需独立供应商再覆盖
+    vl_api_key = os.getenv("VL_API_KEY") or aliyun_api_key
+    vl_api_base = os.getenv("VL_API_BASE") or aliyun_api_base
+
     llm_default_model = os.getenv("LLM_DEFAULT_MODEL")
     llm_default_temperature = float(os.getenv("LLM_DEFAULT_TEMPERATURE"))
     vl_model = os.getenv("VL_MODEL")
