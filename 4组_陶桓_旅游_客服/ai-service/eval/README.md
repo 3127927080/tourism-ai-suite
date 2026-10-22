@@ -46,7 +46,7 @@ uv pip install -r eval/requirements-eval.txt
 | 变量 | 说明 |
 |---|---|
 | `EVAL_USER_ID` | 样本默认用户身份，默认 `eval-customer` |
-| `EVAL_USER_TOKEN` | 真实用户 JWT；订单 / 物流 / 售后类样本必需 |
+| `EVAL_USER_TOKEN` | 真实用户 JWT；订单 / 出行 / 退款类样本必需 |
 | `EVAL_JUDGE_MODEL` | judge 模型，留空复用 `LLM_MODEL` |
 | `EVAL_JUDGE_BASE_URL` | judge 端点，留空复用 `LLM_BASE_URL` |
 | `EVAL_JUDGE_API_KEY` | judge 密钥，留空复用 `LLM_API_KEY` |
@@ -64,7 +64,7 @@ uv pip install -r eval/requirements-eval.txt
 | 列 | 说明 |
 |---|---|
 | `case_id` | 唯一编号 |
-| `scene` | 场景标签：`policy` / `knowledge_missing` / `handoff` / `red_line` / `order` / `logistics` / `after_sale` ... |
+| `scene` | 场景标签：`policy` / `knowledge_missing` / `handoff` / `red_line` / `order` / `trip` / `refund` / `product` ... |
 | `question` | 用户本轮问题 |
 | `ground_truth` | 参考回答；为空则跳过需要 reference 的指标 |
 | `expected_reply_type` | 期望回复类型，留空不校验 |
@@ -80,17 +80,17 @@ uv pip install -r eval/requirements-eval.txt
 ### 样本分层
 
 - **A 类（无数据依赖）**：越界、投诉转人工、越权诱导、绝对化承诺、提示词注入、知识缺失。
-- **B 类（本地平台规则）**：3 条硬编码规则（七天无理由 / 退款到账 / 退货寄回），
+- **B 类（本地平台规则）**：3 条硬编码规则（退改政策 / 出票时效 / 签证材料），
   `contexts` 必然非空，是唯一能产出真实 RAG 分数的样本。
-- **C 类（Ecommerce 种子数据）**：订单、物流、售后、页面动作。执行前需要：
+- **C 类（tourism-service 种子数据）**：订单、出行、退款、页面动作。执行前需要：
 
 ```powershell
 # 1. 取 demo 用户 token
-curl http://192.168.200.188:8001/api/v1/auth/demo-token
+curl -X POST http://192.168.200.188:8001/api/v1/auth/demo-token -H "Content-Type: application/json" -d '{"user_id":"user_001","role":"customer"}'
 # 2. 写入 .env
 EVAL_USER_TOKEN=<上一步返回的 JWT>
-EVAL_USER_ID=<该用户 user_id>
-# 3. 取真实订单号，替换 service_qa.csv 中的 ORDER_001
+EVAL_USER_ID=user_001
+# 3. 取真实订单号，替换 service_qa.csv 中的 ORD_SANYA_001
 curl -H "Authorization: Bearer <token>" http://192.168.200.188:8001/api/v1/orders
 ```
 

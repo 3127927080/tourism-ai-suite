@@ -66,7 +66,7 @@ def build_eval_token(settings: EvalSettings, user_id: str) -> str:
     """按项目共享密钥签发一个短期 customer token。
 
     Customer Service 转发给 AI Service 的就是这种令牌，评估时自行签发即可。
-    订单类样本需要电商服务里真实存在的用户，否则工具调用会被业务侧拒绝。
+    订单类样本需要旅游数据服务里真实存在的用户，否则工具调用会被业务侧拒绝。
     """
     now = datetime.now(UTC)
     payload = {
@@ -108,18 +108,18 @@ def action_code_from_href(href: str) -> str:
     """从服务端生成的页面路径反推动作编码。
 
     线上把可信页面动作转换成 PageAction(label/description/href)，动作编码不在结果里，
-    只能按路径模板还原。顺序很关键：带 query 的售后进度页要先于订单详情判断。
+    只能按路径模板还原。顺序很关键：带 query 的退款进度页要先于订单详情判断。
     """
     if not href:
         return ""
-    if "section=after-sales" in href:
-        return "VIEW_AFTER_SALES"
+    if "section=refunds" in href:
+        return "VIEW_REFUNDS"
     if href.endswith("/cancel"):
-        return "CANCEL_ORDER"
-    if href.endswith("/address"):
-        return "EDIT_ADDRESS"
-    if href.endswith("/after-sale"):
-        return "APPLY_AFTER_SALE"
+        return "CANCEL_BOOKING"
+    if href.endswith("/travelers"):
+        return "EDIT_TRAVELER"
+    if href.endswith("/refund"):
+        return "APPLY_REFUND"
     if re.search(r"/me/orders/[^/?#]+$", href):
         return "OPEN_ORDER_DETAIL"
     if href.rstrip("/") == "/me":
@@ -130,7 +130,7 @@ def action_code_from_href(href: str) -> str:
 def _extract_contexts(tool_calls: list) -> tuple[list[str], list[str]]:
     """抽取本次真正喂给模型的知识片段，作为 RAGAS 的 retrieved_contexts。
 
-    只取 search_knowledge 的成功结果；订单/物流等业务数据不是知识检索，
+    只取 search_knowledge 的成功结果；订单/出行等业务数据不是知识检索，
     强行算 context_precision 没有意义。同时返回知识编号，用于 hit_rate / mrr。
     """
     contexts: list[str] = []
