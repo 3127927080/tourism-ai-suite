@@ -1,5 +1,7 @@
-from atguigu.agent.harness.errors import AgentOutputValidationError, CorrectableErrorCode
-
+from atguigu.agent.harness.errors import (
+    AgentOutputValidationError,
+    CorrectableErrorCode,
+)
 from atguigu.agent.harness.rules.fact import FactChecker
 from atguigu.agent.harness.tools.catalog import TOOL_CATALOG, ToolCategory
 from atguigu.agent.harness.tools.output import ToolFailureType
@@ -15,8 +17,12 @@ class AnswerValidator:
     """校验 Agent 回复使用的业务数据。"""
 
     business_failure_message = (
-        "暂时无法取得可靠的订单、商品、物流或售后信息，"
+        "暂时无法取得可靠的订单、旅游产品或退款信息，"
         "因此现在不能确认结果，请稍后重试。"
+    )
+    knowledge_failure_message = (
+        "暂时无法取得可靠的平台规则与旅游知识内容，"
+        "因此现在不能回答该问题，请稍后重试。"
     )
 
     def __init__(self):
@@ -38,14 +44,39 @@ class AnswerValidator:
         if business_calls and not successful_business_calls:
             return self._build_failure_reply(output, business_calls)
 
-        # 3. 使用成功工具结果校验回答中的业务事实
+        # 3. 知识类工具全部失败时强制拒绝，避免编造规则内容
+        knowledge_calls = self._get_knowledge_calls(tool_calls)
+        if knowledge_calls and not self._get_successful_calls(knowledge_calls):
+            return output.model_copy(
+                update={
+                    "reply_type": ReplyType.DECLINE,
+                    "reply_content": self.knowledge_failure_message,
+                    "handoff_request": None,
+                    "page_action_request": None
+                }
+            )
+
+        # 4. 使用成功工具结果校验回答中的业务事实
         self._validate_facts(
             output.reply_content,
             successful_business_calls
         )
 
-        # 4. 返回通过失败降级和事实校验的原始输出
+        # 5. 返回通过失败降级和事实校验的原始输出
         return output
+
+    @staticmethod
+    def _get_knowledge_calls(tool_calls: tuple[ToolCallSnapshot, ...]) -> tuple[ToolCallSnapshot, ...]:
+        """筛选返回知识数据的工具调用"""
+
+        return tuple(
+            tool_call
+            for tool_call in tool_calls
+            if tool_call.tool_name in TOOL_CATALOG.definitions
+            and TOOL_CATALOG.get_tool_category(
+                tool_call.tool_name
+            ) == ToolCategory.KNOWLEDGE
+        )
 
     @staticmethod
     def _get_business_calls(tool_calls: tuple[ToolCallSnapshot, ...]) -> tuple[ToolCallSnapshot, ...]:

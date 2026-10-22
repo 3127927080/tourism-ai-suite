@@ -1,1 +1,1 @@
-"""电商 AI Service 教学项目。"""
+"""旅游 AI Service 项目。"""

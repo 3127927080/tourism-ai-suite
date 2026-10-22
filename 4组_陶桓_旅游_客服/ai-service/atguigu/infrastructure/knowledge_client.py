@@ -6,17 +6,17 @@ from atguigu.common.config import get_settings
 
 
 class KnowledgeClient:
-    """使用独立内部令牌访问商品知识检索接口。"""
+    """使用独立内部令牌访问旅游知识检索接口。"""
 
     def __init__(self):
         self.settings = get_settings()
 
     async def search(self, query: str, top_k: int) -> dict[str, Any]:
-        """检索商品知识，返回原始响应。"""
+        """检索旅游知识，返回原始响应。"""
         # 1. 缺少独立令牌时直接失败，避免把空令牌发给知识库
         token = self.settings.knowledge_service_token
         if not token:
-            raise RuntimeError("未配置商品知识服务令牌")
+            raise RuntimeError("未配置旅游知识服务令牌")
 
         # 2. 根据服务地址构建检索接口
         request_url = (
@@ -41,5 +41,5 @@ class KnowledgeClient:
 
         # 4. 只接受对象响应，避免后续按字段读取时出错
         if not isinstance(payload, dict):
-            raise RuntimeError("商品知识服务返回了无法识别的响应")
+            raise TypeError("旅游知识服务返回了无法识别的响应")
         return payload

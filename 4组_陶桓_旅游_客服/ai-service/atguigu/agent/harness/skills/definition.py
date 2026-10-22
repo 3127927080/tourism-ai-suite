@@ -6,11 +6,11 @@ from pydantic import BaseModel, ConfigDict, Field
 class SkillCode(StrEnum):
     """定义 Agent 可以加载的技能编码。"""
 
-    PRODUCT_SERVICE = "product-service"
+    TRAVEL_PRODUCT_SERVICE = "travel-product-service"
     ORDER_SERVICE = "order-service"
-    LOGISTICS_SERVICE = "logistics-service"
+    TRIP_SERVICE = "trip-service"
     POLICY_SERVICE = "policy-service"
-    AFTER_SALES_SERVICE = "after-sales-service"
+    REFUND_SERVICE = "refund-service"
 
 
 class SkillDefinition(BaseModel):

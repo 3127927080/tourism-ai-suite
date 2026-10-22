@@ -2,8 +2,8 @@ import asyncio
 
 from langchain.agents import create_agent
 from langchain.agents.middleware import ToolCallLimitMiddleware
-from langchain_core.messages import HumanMessage, SystemMessage
 from langchain.agents.structured_output import ToolStrategy
+from langchain_core.messages import HumanMessage, SystemMessage
 
 from atguigu.agent.harness.dynamic_prompt import support_prompt
 from atguigu.agent.harness.run.runtime import (
@@ -14,7 +14,7 @@ from atguigu.agent.harness.skills.middleware import SkillScopeMiddleware
 from atguigu.agent.harness.tools.catalog import TOOL_CATALOG
 from atguigu.agent.llm.adapter import ModelAdapter
 from atguigu.agent.llm.output import AgentOutput
-
+from atguigu.common.config import get_settings
 
 #
 # class User(BaseModel):
@@ -42,11 +42,11 @@ def create_support_agent():
             support_prompt,
             SkillScopeMiddleware(),
             ToolCallLimitMiddleware(
-                run_limit=8,
+                run_limit=get_settings().agent_tool_call_limit,
                 exit_behavior="error"
             )
         ],
-        name="智能客服专家"
+        name="旅游智能客服专家"
     )
 
 
