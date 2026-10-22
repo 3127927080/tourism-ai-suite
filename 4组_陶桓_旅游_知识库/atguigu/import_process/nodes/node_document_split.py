@@ -108,28 +108,32 @@ class NodeDocumentSplit(NodeBase):
                 # 既满足不在代码块内,又符合标题的正则,则是标题行,准备切分,切上一个标题到这个标题的行
                 temp_list = md_line_list[current_idx:idx]
                 content = "\n".join(temp_list)
-                # 标题取第一行真正以 # 开头的行，避免内容以空行开头时取到空串
-                title_line = next(
-                    (ln.strip() for ln in temp_list if ln.strip().startswith("#")),
-                    "无标题",
-                )
-                # 准备字典,对于标题可能是没有的，所以这里要判断
-                section_dict = {
-                    "title": title_line,
-                    "content": content,
-                    "file_title": file_title
-                }
-                section_list.append(section_dict)
+                # 首个标题在第 0 行时 temp_list 为空，跳过，避免产生空正文的 chunk
+                if content.strip():
+                    # 标题取第一行真正以 # 开头的行，避免内容以空行开头时取到空串
+                    title_line = next(
+                        (ln.strip() for ln in temp_list if ln.strip().startswith("#")),
+                        "无标题",
+                    )
+                    # 准备字典,对于标题可能是没有的，所以这里要判断
+                    section_dict = {
+                        "title": title_line,
+                        "content": content,
+                        "file_title": file_title
+                    }
+                    section_list.append(section_dict)
                 # 切分完成,将当前行索引更新为idx
                 current_idx = idx
 
         # 走出大循环之后,因为最后一个段落不会切分，所以需要单独处理
-        section_dict = {
-            "title": md_line_list[current_idx],
-            "content": '\n'.join(md_line_list[current_idx:]),
-            "file_title": file_title
-        }
-        section_list.append(section_dict)
+        tail_content = '\n'.join(md_line_list[current_idx:])
+        if tail_content.strip():
+            section_dict = {
+                "title": md_line_list[current_idx].strip(),
+                "content": tail_content,
+                "file_title": file_title
+            }
+            section_list.append(section_dict)
         return section_list
 
     def get_final_section_list(self, file_title, section_list) :

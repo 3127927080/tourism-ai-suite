@@ -70,7 +70,7 @@ class NodeWebSearchMcp(NodeBase):
 if __name__ == "__main__":
 
     init_state = {
-        "rewritten_query": "关于兄弟HAK180烫金机如何使用"
+        "rewritten_query": "三亚亚龙湾适合什么人去"
     }
 
     # 执行节点的业务调用

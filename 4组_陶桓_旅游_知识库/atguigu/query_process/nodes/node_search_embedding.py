@@ -48,8 +48,9 @@ def build_filter_expr(item_names: list, content_type: str, entities: list) -> st
     if content_type:
         parts.append(f"content_type == '{escape_value(content_type)}'")
     if entities:
+        # entities 是 JSON 字符串数组，元素本身不带引号，不能用 '"亚龙湾"' 这种写法
         ors = " or ".join(
-            f"json_contains(entities, '\"{escape_value(entity)}\"')" for entity in entities
+            f"json_contains(entities, '{escape_value(entity)}')" for entity in entities
         )
         parts.append(f"({ors})")
     return " and ".join(parts)
