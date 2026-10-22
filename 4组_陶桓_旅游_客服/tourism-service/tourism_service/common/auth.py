@@ -5,7 +5,7 @@ import jwt
 from fastapi import Depends, Header, HTTPException, status
 from pydantic import BaseModel
 
-from ecommerce_service.common.config import get_settings
+from tourism_service.common.config import get_settings
 
 
 class Principal(BaseModel):

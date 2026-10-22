@@ -1,8 +1,8 @@
 from sqlalchemy import text
 
-from ecommerce_service import models  # noqa: F401
-from ecommerce_service.database import Base, SessionLocal, engine
-from ecommerce_service.seed import seed_demo_data
+from tourism_service import models  # noqa: F401
+from tourism_service.database import Base, SessionLocal, engine
+from tourism_service.seed import seed_demo_data
 
 
 def reset_data() -> None:
@@ -16,4 +16,4 @@ def reset_data() -> None:
 
 if __name__ == "__main__":
     reset_data()
-    print("E-commerce service data reset completed.")
+    print("Tourism service data reset completed.")

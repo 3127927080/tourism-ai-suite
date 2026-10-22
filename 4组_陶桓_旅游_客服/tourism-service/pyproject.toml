@@ -1,7 +1,7 @@
 [project]
-name = "ecommerce-service"
+name = "tourism-service"
 version = "1.0.0"
-description = "Self-operated e-commerce users, products, orders, logistics and after-sales APIs"
+description = "Tourism travel-data service: products, orders, trip info, refunds and tickets APIs"
 requires-python = ">=3.12"
 dependencies = [
   "fastapi>=0.116.0",

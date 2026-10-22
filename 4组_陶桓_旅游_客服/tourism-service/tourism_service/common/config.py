@@ -4,10 +4,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    ecom_database_url: str = (
-        "postgresql+psycopg://customer_service:customer_service@192.168.200.170:5432/ecommerce"
+    tourism_database_url: str = (
+        "postgresql+psycopg://customer_service:customer_service@192.168.200.188:5432/tourism"
     )
-    jwt_secret: str = "replace-this-in-production"
+    jwt_secret: str = "ecommerce-secret"
     jwt_algorithm: str = "HS256"
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")

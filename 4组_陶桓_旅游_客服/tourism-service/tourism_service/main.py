@@ -8,47 +8,77 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
-from ecommerce_service.common.auth import (
+from tourism_service.common.auth import (
     Principal,
     create_access_token,
     current_principal,
     require_roles,
 )
-from ecommerce_service.database import Base, SessionLocal, engine, get_db
-from ecommerce_service.models import AfterSale, IdempotencyRecord, Order, Product, User
-from ecommerce_service.schemas import AddressUpdate, AfterSaleCreate, DemoLoginRequest, money
-from ecommerce_service.seed import seed_demo_data
+from tourism_service.database import Base, SessionLocal, engine, get_db
+from tourism_service.models import (
+    IdempotencyRecord,
+    Order,
+    Refund,
+    Ticket,
+    TravelProduct,
+    TripInfo,
+    User,
+)
+from tourism_service.schemas import (
+    DemoLoginRequest,
+    RefundCreate,
+    TicketCreate,
+    TravelerUpdate,
+    money,
+)
+from tourism_service.seed import seed_demo_data
 
 ORDER_STATUS_LABELS = {
+    "pending_payment": "待支付",
     "paid": "已支付",
-    "pending_shipment": "待发货",
-    "shipped": "已发货",
+    "upcoming": "待出行",
+    "in_progress": "出行中",
     "completed": "已完成",
     "cancelled": "已取消",
+    "refunding": "退款中",
     "refunded": "已退款",
+    "ticketed": "已出票",
+    "ticket_refunded": "已退票",
+    "checked_in": "已入住",
+    "checked_out": "已离店",
 }
+
+# 允许取消的订单状态
+CANCELLABLE_STATUSES = {"pending_payment", "paid", "upcoming"}
 
 
 def cancellation_policy(order: Order) -> tuple[bool, str]:
-    if order.status in {"paid", "pending_shipment"}:
+    if order.status in CANCELLABLE_STATUSES:
         return True, ""
-    if order.status == "shipped":
-        return False, "订单已发货，不能直接取消；可以签收后申请退货。"
+    if order.status in {"in_progress", "checked_in"}:
+        return False, "订单已开始出行，不能直接取消；请申请退款或联系人工。"
     if order.status == "cancelled":
         return False, "订单已经取消。"
+    if order.status in {"completed", "checked_out"}:
+        return False, "订单已完成，不能取消。"
     return False, "订单当前状态不能直接取消。"
 
 
-def product_payload(product: Product) -> dict:
+def _iso(value):
+    return value.isoformat() if value is not None else None
+
+
+def product_payload(product: TravelProduct) -> dict:
     return {
         "id": product.id,
         "name": product.name,
-        "category": product.category,
+        "type": product.type,
+        "city": product.city,
         "price": money(product.price),
         "stock": product.stock,
         "status": product.status,
         "description": product.description,
-        "specs": product.specs,
+        "attributes": product.attributes,
     }
 
 
@@ -59,17 +89,58 @@ def order_payload(order: Order) -> dict:
         "status": order.status,
         "status_label": ORDER_STATUS_LABELS.get(order.status, order.status),
         "total_amount": money(order.total_amount),
-        "address": order.address,
         "created_at": order.created_at.isoformat(),
+        "travel_start_date": _iso(order.travel_start_date),
+        "travel_end_date": _iso(order.travel_end_date),
         "items": [
             {
                 "product_id": item.product_id,
                 "product_name": item.product_name,
+                "product_type": item.product_type,
                 "quantity": item.quantity,
                 "unit_price": money(item.unit_price),
             }
             for item in order.items
         ],
+    }
+
+
+def trip_payload(trip: TripInfo) -> dict:
+    return {
+        "order_id": trip.order_id,
+        "travel_date": _iso(trip.travel_date),
+        "checkin_date": _iso(trip.checkin_date),
+        "checkout_date": _iso(trip.checkout_date),
+        "departure_time": trip.departure_time,
+        "arrival_time": trip.arrival_time,
+        "transport_no": trip.transport_no,
+        "traveler_info": trip.traveler_info,
+        "meeting_point": trip.meeting_point,
+        "status": trip.status,
+        "events": trip.events,
+    }
+
+
+def refund_payload(refund: Refund) -> dict:
+    return {
+        "id": refund.id,
+        "order_id": refund.order_id,
+        "kind": refund.kind,
+        "reason": refund.reason,
+        "status": refund.status,
+        "amount": money(refund.amount) if refund.amount is not None else None,
+        "created_at": refund.created_at.isoformat(),
+    }
+
+
+def ticket_payload(ticket: Ticket) -> dict:
+    return {
+        "id": ticket.id,
+        "order_id": ticket.order_id,
+        "ticket_type": ticket.ticket_type,
+        "issue_description": ticket.issue_description,
+        "status": ticket.status,
+        "created_at": ticket.created_at.isoformat(),
     }
 
 
@@ -144,7 +215,7 @@ async def lifespan(_: FastAPI):
     yield
 
 
-app = FastAPI(title="E-commerce Service", version="1.0.0", lifespan=lifespan)
+app = FastAPI(title="Tourism Service", version="1.0.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -161,7 +232,7 @@ app.add_middleware(
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "service": "ecommerce-service"}
+    return {"status": "ok", "service": "tourism-service"}
 
 
 @app.post("/api/v1/auth/demo-token")
@@ -198,53 +269,63 @@ def demo_users(db: Annotated[Session, Depends(get_db)]):
 
 
 @app.get("/api/v1/products")
-def search_products(
+def search_travel_products(
     db: Annotated[Session, Depends(get_db)],
     _: Annotated[Principal, Depends(current_principal)],
     query: str = Query(default="", max_length=100),
+    type: str | None = Query(default=None, description="hotel|scenic|ticket|transfer"),
 ):
-    statement = select(Product).where(Product.status == "active")
+    statement = select(TravelProduct).where(TravelProduct.status == "active")
+    if type:
+        statement = statement.where(TravelProduct.type == type)
     if query:
         like = f"%{query}%"
         statement = statement.where(
             or_(
-                Product.name.ilike(like),
-                Product.category.ilike(like),
-                Product.description.ilike(like),
+                TravelProduct.name.ilike(like),
+                TravelProduct.description.ilike(like),
+                TravelProduct.city.ilike(like),
             )
         )
-    products = db.scalars(statement.order_by(Product.id).limit(20)).all()
+    products = db.scalars(statement.order_by(TravelProduct.id).limit(20)).all()
     return tool_result(
-        True, "OK", f"找到 {len(products)} 个商品", [product_payload(p) for p in products]
+        True, "OK", f"找到 {len(products)} 个旅游产品", [product_payload(p) for p in products]
     )
 
 
 @app.get("/api/v1/products/{product_id}")
-def get_product(
+def get_travel_product(
     product_id: str,
     db: Annotated[Session, Depends(get_db)],
     _: Annotated[Principal, Depends(current_principal)],
 ):
-    product = db.get(Product, product_id)
+    product = db.get(TravelProduct, product_id)
     if not product:
-        return tool_result(False, "PRODUCT_NOT_FOUND", "商品不存在")
-    return tool_result(True, "OK", "商品查询成功", product_payload(product))
+        return tool_result(False, "PRODUCT_NOT_FOUND", "产品不存在")
+    return tool_result(True, "OK", "产品查询成功", product_payload(product))
 
 
-@app.get("/api/v1/products/{product_id}/stock")
-def get_product_stock(
+@app.get("/api/v1/products/{product_id}/availability")
+def get_product_availability(
     product_id: str,
     db: Annotated[Session, Depends(get_db)],
     _: Annotated[Principal, Depends(current_principal)],
 ):
-    product = db.get(Product, product_id)
+    product = db.get(TravelProduct, product_id)
     if not product:
-        return tool_result(False, "PRODUCT_NOT_FOUND", "商品不存在")
+        return tool_result(False, "PRODUCT_NOT_FOUND", "产品不存在")
+    available = product.stock > 0 and product.status == "active"
+    attributes = product.attributes or {}
     return tool_result(
         True,
         "OK",
-        "库存查询成功",
-        {"product_id": product.id, "stock": product.stock, "status": product.status},
+        "余量查询成功",
+        {
+            "product_id": product.id,
+            "available_count": product.stock,
+            "availability_status": "available" if available else "sold_out",
+            "date_range": attributes.get("date_range"),
+        },
     )
 
 
@@ -274,8 +355,8 @@ def get_order(
     return tool_result(True, "OK", "订单查询成功", order_payload(order))
 
 
-@app.get("/api/v1/orders/{order_id}/logistics")
-def get_logistics(
+@app.get("/api/v1/orders/{order_id}/trip")
+def get_trip_info(
     order_id: str,
     db: Annotated[Session, Depends(get_db)],
     principal: Annotated[Principal, Depends(current_principal)],
@@ -284,22 +365,9 @@ def get_logistics(
         order = owned_order(db, order_id, principal)
     except HTTPException as exc:
         return tool_result(False, "ORDER_NOT_FOUND", str(exc.detail))
-    if not order.logistics:
-        return tool_result(False, "LOGISTICS_NOT_AVAILABLE", "订单尚未产生物流信息")
-    item = order.logistics
-    return tool_result(
-        True,
-        "OK",
-        "物流查询成功",
-        {
-            "order_id": order.id,
-            "company": item.company,
-            "tracking_number": item.tracking_number,
-            "status": item.status,
-            "latest_event": item.latest_event,
-            "events": item.events,
-        },
-    )
+    if not order.trip:
+        return tool_result(False, "TRIP_NOT_AVAILABLE", "该订单暂无出行信息")
+    return tool_result(True, "OK", "出行信息查询成功", trip_payload(order.trip))
 
 
 @app.post("/api/v1/orders/{order_id}/cancel")
@@ -309,7 +377,7 @@ def cancel_order(
     principal: Annotated[Principal, Depends(current_principal)],
     idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
 ):
-    if cached := cached_operation(db, idempotency_key, principal, "cancel_order"):
+    if cached := cached_operation(db, idempotency_key, principal, "cancel_booking"):
         return cached
     try:
         order = owned_order(db, order_id, principal)
@@ -317,110 +385,162 @@ def cancel_order(
         return tool_result(False, "ORDER_NOT_FOUND", str(exc.detail))
     if order.status == "cancelled":
         result = tool_result(True, "ALREADY_CANCELLED", "订单已经取消", order_payload(order))
-        return store_operation(db, idempotency_key, principal, "cancel_order", result)
+        return store_operation(db, idempotency_key, principal, "cancel_booking", result)
     can_cancel, cancel_reason = cancellation_policy(order)
     if not can_cancel:
         return tool_result(False, "ORDER_NOT_CANCELLABLE", cancel_reason)
     order.status = "cancelled"
     result = tool_result(True, "OK", "订单取消成功", order_payload(order))
-    return store_operation(db, idempotency_key, principal, "cancel_order", result)
+    return store_operation(db, idempotency_key, principal, "cancel_booking", result)
 
 
-@app.patch("/api/v1/orders/{order_id}/address")
-def update_address(
+@app.patch("/api/v1/orders/{order_id}/travelers")
+def update_travelers(
     order_id: str,
-    request: AddressUpdate,
+    request: TravelerUpdate,
     db: Annotated[Session, Depends(get_db)],
     principal: Annotated[Principal, Depends(current_principal)],
     idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
 ):
-    if cached := cached_operation(db, idempotency_key, principal, "update_shipping_address"):
+    if cached := cached_operation(db, idempotency_key, principal, "update_travelers"):
         return cached
     try:
         order = owned_order(db, order_id, principal)
     except HTTPException as exc:
         return tool_result(False, "ORDER_NOT_FOUND", str(exc.detail))
-    if order.status not in {"paid", "pending_shipment"}:
-        return tool_result(False, "ADDRESS_NOT_EDITABLE", "订单当前状态不能修改地址")
-    order.address = request.address
-    result = tool_result(True, "OK", "收货地址修改成功", order_payload(order))
-    return store_operation(db, idempotency_key, principal, "update_shipping_address", result)
+    if order.status not in {"pending_payment", "paid", "upcoming"}:
+        return tool_result(False, "TRAVELER_NOT_EDITABLE", "订单当前状态不能修改出行人")
+    if not order.trip:
+        order.trip = TripInfo(order_id=order.id, traveler_info=request.traveler_info)
+    else:
+        order.trip.traveler_info = request.traveler_info
+    result = tool_result(
+        True,
+        "OK",
+        "出行人修改成功",
+        {"order_id": order.id, "traveler_info": request.traveler_info},
+    )
+    return store_operation(db, idempotency_key, principal, "update_travelers", result)
 
 
-@app.post("/api/v1/orders/{order_id}/after-sales")
-def create_after_sale(
+@app.post("/api/v1/orders/{order_id}/refunds")
+def create_refund(
     order_id: str,
-    request: AfterSaleCreate,
+    request: RefundCreate,
     db: Annotated[Session, Depends(get_db)],
     principal: Annotated[Principal, Depends(current_principal)],
     idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
 ):
-    if cached := cached_operation(db, idempotency_key, principal, "create_after_sale"):
+    if cached := cached_operation(db, idempotency_key, principal, "create_refund"):
         return cached
     try:
         order = owned_order(db, order_id, principal)
     except HTTPException as exc:
         return tool_result(False, "ORDER_NOT_FOUND", str(exc.detail))
     if order.status in {"cancelled", "refunded"}:
-        return tool_result(False, "AFTER_SALE_NOT_ALLOWED", "该订单不能发起售后")
+        return tool_result(False, "REFUND_NOT_ALLOWED", "该订单不能发起退款")
     existing = db.scalar(
-        select(AfterSale).where(
-            AfterSale.order_id == order.id,
-            AfterSale.status.in_(["pending", "approved", "processing"]),
+        select(Refund).where(
+            Refund.order_id == order.id,
+            Refund.status.in_(["pending", "approved", "processing"]),
         )
     )
     if existing:
         result = tool_result(
             True,
             "ALREADY_EXISTS",
-            "该订单已有进行中的售后申请",
-            {"after_sale_id": existing.id, "status": existing.status},
+            "该订单已有进行中的退款申请",
+            {"refund_id": existing.id, "status": existing.status},
         )
-        return store_operation(db, idempotency_key, principal, "create_after_sale", result)
-    record = AfterSale(
-        id=f"AS_{uuid4().hex[:10].upper()}",
+        return store_operation(db, idempotency_key, principal, "create_refund", result)
+    record = Refund(
+        id=f"REFUND_{uuid4().hex[:10].upper()}",
         user_id=order.user_id,
         order_id=order.id,
         kind=request.kind,
         reason=request.reason,
+        amount=order.total_amount if request.kind == "full" else None,
     )
     db.add(record)
+    db.flush()
     result = tool_result(
         True,
         "OK",
-        "售后申请创建成功",
-        {"after_sale_id": record.id, "status": record.status},
+        "退款申请创建成功",
+        {"refund_id": record.id, "status": record.status},
     )
-    return store_operation(db, idempotency_key, principal, "create_after_sale", result)
+    return store_operation(db, idempotency_key, principal, "create_refund", result)
 
 
-@app.get("/api/v1/after-sales")
-def list_after_sales(
+@app.post("/api/v1/orders/{order_id}/tickets")
+def create_ticket(
+    order_id: str,
+    request: TicketCreate,
+    db: Annotated[Session, Depends(get_db)],
+    principal: Annotated[Principal, Depends(current_principal)],
+    idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
+):
+    if cached := cached_operation(db, idempotency_key, principal, "create_ticket"):
+        return cached
+    try:
+        order = owned_order(db, order_id, principal)
+    except HTTPException as exc:
+        return tool_result(False, "ORDER_NOT_FOUND", str(exc.detail))
+    record = Ticket(
+        id=f"TK_{uuid4().hex[:10].upper()}",
+        user_id=order.user_id,
+        order_id=order.id,
+        ticket_type=request.ticket_type,
+        issue_description=request.issue_description,
+    )
+    db.add(record)
+    db.flush()
+    result = tool_result(
+        True,
+        "OK",
+        "工单创建成功",
+        {"ticket_id": record.id, "status": record.status},
+    )
+    return store_operation(db, idempotency_key, principal, "create_ticket", result)
+
+
+@app.get("/api/v1/refunds")
+def list_refunds(
     db: Annotated[Session, Depends(get_db)],
     principal: Annotated[Principal, Depends(current_principal)],
     order_id: str | None = None,
 ):
-    statement = select(AfterSale)
+    statement = select(Refund)
     if principal.role == "customer":
-        statement = statement.where(AfterSale.user_id == principal.user_id)
+        statement = statement.where(Refund.user_id == principal.user_id)
     if order_id:
-        statement = statement.where(AfterSale.order_id == order_id)
-    records = db.scalars(statement.order_by(AfterSale.created_at.desc())).all()
+        statement = statement.where(Refund.order_id == order_id)
+    records = db.scalars(statement.order_by(Refund.created_at.desc())).all()
     return tool_result(
         True,
         "OK",
-        f"找到 {len(records)} 条售后记录",
-        [
-            {
-                "id": item.id,
-                "order_id": item.order_id,
-                "kind": item.kind,
-                "reason": item.reason,
-                "status": item.status,
-                "created_at": item.created_at.isoformat(),
-            }
-            for item in records
-        ],
+        f"找到 {len(records)} 条退款记录",
+        [refund_payload(item) for item in records],
+    )
+
+
+@app.get("/api/v1/tickets")
+def list_tickets(
+    db: Annotated[Session, Depends(get_db)],
+    principal: Annotated[Principal, Depends(current_principal)],
+    order_id: str | None = None,
+):
+    statement = select(Ticket)
+    if principal.role == "customer":
+        statement = statement.where(Ticket.user_id == principal.user_id)
+    if order_id:
+        statement = statement.where(Ticket.order_id == order_id)
+    records = db.scalars(statement.order_by(Ticket.created_at.desc())).all()
+    return tool_result(
+        True,
+        "OK",
+        f"找到 {len(records)} 条工单记录",
+        [ticket_payload(item) for item in records],
     )
 
 
@@ -430,8 +550,9 @@ def admin_summary(
     _: Annotated[Principal, Depends(require_roles("agent", "admin"))],
 ):
     return {
-        "products": len(db.scalars(select(Product)).all()),
+        "products": len(db.scalars(select(TravelProduct)).all()),
         "orders": len(db.scalars(select(Order)).all()),
-        "after_sales": len(db.scalars(select(AfterSale)).all()),
+        "refunds": len(db.scalars(select(Refund)).all()),
+        "tickets": len(db.scalars(select(Ticket)).all()),
         "generated_at": datetime.now(UTC).isoformat(),
     }
