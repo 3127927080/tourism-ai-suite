@@ -52,7 +52,13 @@ class ModelAdapter:
                 }
             )
 
-        return ChatOpenAI(**model_kwargs, use_responses_api=False)
+        # openai_compatible：使用 DeepSeek 风格 thinking 开关（happycodeai 等兼容网关支持）
+        # 关闭思考模式时传 thinking.type=disabled，避免产生 reasoning token
+        return ChatOpenAI(
+            **model_kwargs,
+            use_responses_api=False,
+            extra_body={"thinking": {"type": settings.llm_thinking_mode}}
+        )
 
     @staticmethod
     def normalize_output(value: Any) -> AgentOutput:
