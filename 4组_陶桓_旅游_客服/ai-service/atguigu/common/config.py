@@ -43,6 +43,8 @@ class Settings(BaseSettings):
     # 单次 Run 内的工具调用上限与整体超时
     agent_tool_call_limit: int = Field(default=8, ge=1)
     agent_run_timeout_seconds: float = Field(default=90.0, gt=0)
+    # 流式输出时每次下发的文本块字符数
+    stream_chunk_size: int = Field(default=3, ge=1)
 
     model_config = SettingsConfigDict(
         env_file=ENV_FILE,

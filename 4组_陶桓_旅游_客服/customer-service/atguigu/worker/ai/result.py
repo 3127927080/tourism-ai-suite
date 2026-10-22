@@ -53,6 +53,21 @@ class AIResultService:
         """把 AI 返回的任务状态写回会话（不提交，随当前事务原子提交）。"""
         conversation.task_state = task_state
 
+    def save_stream_deltas(
+            self,
+            conversation: Conversation,
+            message_id: str | None,
+            deltas: list[str]
+    ) -> None:
+        """把 token 增量按序写入 Outbox（先增量、后完整消息）。"""
+        for index, delta in enumerate(deltas):
+            self.real_service.add_message_delta_event(
+                conversation,
+                message_id,
+                delta,
+                index,
+            )
+
     async def save_handoff_result(
             self,
             conversation: Conversation,

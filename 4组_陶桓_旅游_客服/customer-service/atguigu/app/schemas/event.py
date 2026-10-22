@@ -4,6 +4,7 @@ from enum import StrEnum
 
 class RealTimeOutBoxType(StrEnum):
     MESSAGE_CREATED="message_created"
+    MESSAGE_DELTA="message_delta"
     HANDOFF_CHANGED="handoff_changed"
 
 
