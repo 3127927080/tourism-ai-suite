@@ -147,8 +147,8 @@ uv run python -m eval.run_eval
 6. **版本适配**：已在 `ragas==0.4.3` + `deepeval==2.9.3` 下验证指标装配与
    `LLMTestCase` / `ToolCall` 字段（2.x 的工具入参字段是 `input_parameters`，
    旧版是 `input`，`deepeval_metrics` 加载时自动探测）。
-7. **知识缺失样本**：`kb_0515` 只含 hak180 文档，因此商品知识类样本以
-   「明确说明无法确认」为正确口径，而不是「答对规格」。
+7. **知识缺失样本**：知识库未覆盖的主题（如超重收费、充电宝租借等），因此这类样本以
+   「明确说明无法确认」为正确口径，而不是「答对细节」。
 8. **同源偏差**：B 类样本来自本地 3 条平台规则，分数会偏高，必须保留 A 类对照。
 9. **DB 副作用**：评估会真实写入 `agent_runs` / `agent_tool_calls`，
    `conversation_id` 统一为 `eval-conv-<case_id>`，便于清理：
