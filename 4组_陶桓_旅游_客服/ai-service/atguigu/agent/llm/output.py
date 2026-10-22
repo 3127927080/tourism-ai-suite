@@ -1,10 +1,10 @@
 from enum import StrEnum
 from typing import Self
 
-from pydantic import BaseModel, Field, model_validator,ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from atguigu.agent.harness.rules.action import ActionCode
-
+from atguigu.agent.harness.tasks.schema import TaskAction, TaskType
 
 
 class ReplyType(StrEnum):
@@ -66,6 +66,35 @@ class PageActionRequest(BaseModel):
         return self
 
 
+class TaskUpdate(BaseModel):
+    """定义主 Agent 每轮输出的任务状态变更。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    action: TaskAction = Field(description="本轮任务动作")
+    task_type: TaskType | None = Field(
+        default=None,
+        description="START/SWITCH 时必填，其余动作可为空"
+    )
+    slots: dict[str, str] = Field(
+        default_factory=dict,
+        description="本轮新收集或更新的槽位"
+    )
+    reason: str | None = Field(default=None, description="动作原因，便于审计")
+
+    @model_validator(mode="after")
+    def validate_task_update(self) -> Self:
+        """校验任务动作与任务类型的组合关系。"""
+        # 1. START/SWITCH 必须提供任务类型
+        if (
+                self.action in (TaskAction.START, TaskAction.SWITCH)
+                and self.task_type is None
+        ):
+            raise ValueError(f"{self.action} 必须提供 task_type")
+        # 2. 返回通过组合校验的任务更新
+        return self
+
+
 class AgentOutput(BaseModel):
     """定义大语言模型必须返回的结构化结果。"""
 
@@ -75,6 +104,10 @@ class AgentOutput(BaseModel):
     page_action_request: PageActionRequest | None = Field(
         default=None,
         description="仅当用户明确要求前往、打开或查看页面，或者提出必须在页面完成的操作时提供；仅查询业务信息时不得提供"
+    )
+    task_update: TaskUpdate | None = Field(
+        default=None,
+        description="本轮对多轮任务状态的动作与槽位更新；没有任务变化时为空"
     )
 
     @model_validator(mode="after")

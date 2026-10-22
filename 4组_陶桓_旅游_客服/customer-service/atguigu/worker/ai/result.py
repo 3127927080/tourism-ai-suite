@@ -45,6 +45,14 @@ class AIResultService:
 
         return message
 
+    def save_task_state(
+            self,
+            conversation: Conversation,
+            task_state: dict[str, Any] | None
+    ) -> None:
+        """把 AI 返回的任务状态写回会话（不提交，随当前事务原子提交）。"""
+        conversation.task_state = task_state
+
     async def save_handoff_result(
             self,
             conversation: Conversation,

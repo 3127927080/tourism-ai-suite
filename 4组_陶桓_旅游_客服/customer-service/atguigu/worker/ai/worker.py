@@ -180,6 +180,11 @@ class TurnProcessor:
                         run_result["content"],
                         message_id=run_result["message_id"]
                     )
+                # 保存本轮任务状态（与消息同一事务原子提交；含清空场景）
+                if "task_state" in run_result:
+                    result_service.save_task_state(
+                        conversation, run_result["task_state"]
+                    )
 
             # 6. 推进会话已经处理完成的输入版本
             conversation.answered_revision = turn.snapshot_revision

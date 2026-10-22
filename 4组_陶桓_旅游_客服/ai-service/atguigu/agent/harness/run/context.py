@@ -1,8 +1,9 @@
 import json
 
-from langchain_core.messages import BaseMessage, AIMessage, HumanMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 
-from atguigu.app.schemas.run import AgentRunRequest, HistoryMessage, CurrentMessage
+from atguigu.agent.harness.tasks.schema import slot_schema_text
+from atguigu.app.schemas.run import AgentRunRequest, CurrentMessage, HistoryMessage
 from atguigu.common.config import get_settings
 
 
@@ -21,21 +22,53 @@ class ContextCompiler:
 
         candidate_history_messages: list[HistoryMessage] = self._bounded_history_message(request.history)
 
-        # 2. 标准化LangChain统一的消息格式
-        messages = [
+        # 2. 注入当前任务状态摘要与槽位规则（仅 active 与栈顶）
+        messages: list[BaseMessage] = []
+        task_context = self._build_task_context(request.task_state)
+        if task_context:
+            messages.append(SystemMessage(content=task_context))
+
+        # 3. 标准化LangChain统一的消息格式
+        messages.extend(
             (
                 HumanMessage(content=self._format_message(message))
                 if message.role == "user"
                 else AIMessage(content=self._format_message(message))
             )
             for message in candidate_history_messages
-        ]
+        )
 
-        # 3. 构建用户当前消息，追加到标准化LangChain统一的消息格式中
+        # 4. 构建用户当前消息，追加到标准化LangChain统一的消息格式中
         messages.append(HumanMessage(content=self._build_current_message(request.messages)))
 
-        # 4. 返回
+        # 5. 返回
         return messages
+
+    @staticmethod
+    def _build_task_context(task_state: dict | None) -> str:
+        """把任务状态摘要与槽位 schema 渲染成系统提示。"""
+        active = (task_state or {}).get("active")
+        stack = (task_state or {}).get("stack") or []
+        if not active and not stack:
+            return ""
+
+        lines = ["【多轮任务状态】"]
+        if active:
+            lines.append(
+                f"- 当前任务：{active.get('task_type')}；状态：{active.get('status')}；"
+                f"已收集槽位：{active.get('slots') or {}}；"
+                f"缺失槽位：{active.get('missing_slots') or []}"
+            )
+        if stack:
+            top = stack[-1]
+            lines.append(
+                f"- 待恢复任务（栈顶）：{top.get('task_type')}；"
+                f"已收集槽位：{top.get('slots') or {}}；"
+                f"缺失槽位：{top.get('missing_slots') or []}"
+            )
+        lines.append("【任务槽位规则】")
+        lines.append(slot_schema_text())
+        return "\n".join(lines)
 
     def _bounded_history_message(self, history: list[HistoryMessage]) -> list[HistoryMessage]:
         """
