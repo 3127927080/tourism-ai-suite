@@ -1058,7 +1058,7 @@ RELATION_TYPES = ["位于", "属于", "包含", "途经", "推荐",
 | 4 | `eval/eval.py --limit 50` 跑完，5 项指标写入 `result.csv` | ✅ | 50/50 success，见 `eval/REPORT.md` |
 | 5 | 旧集合 `kb_chunks` / `kb_item_names` 未被修改 | ✅ | 实测 1241 / 34 行；代码无旧集合读写路径 |
 | 6 | 8003 `/query` 与 SSE 行为不退化 | ✅ | SSE 实测：progress × 11、delta × 280、final × 1，答案含【参考来源】；事件类型未变 |
-| 6b | 8004 `/upload` 行为不退化 | ⏸ 未验 | 本期未跑上传链路（依赖 MinerU/视觉额度），留待后续 |
+| 6b | 8004 `/upload` 行为不退化 | ✅ | 2026-10-23 实测：上传 `三亚景点推荐.md` → HTTP 200 → 任务 `completed`；顺带修复中文文件名 RFC2047 编码导致的 500（`normalize_upload_filename`）；条数仍 1320、旧集合 1241/34 未变 |
 | 7 | 8005 无 token 401、有 token 200，新旧请求均可用 | ✅ | 401 / 200 实测；新请求 `city + content_type` 过滤生效，`duration_days/estimated` 字段正常 |
 | 8 | 多路检索：向量 / HyDE / 图谱 / 网络各自可用，单路失败只降级该路 | ✅ | `smoke_query.py --with-routes` 10/10 PASS（向量 1、HyDE 1+RRF 1、图谱 8、网搜 10）；图 5s / 网 8s 超时降级 |
 | 9 | 图谱重建：旧电商图清空后用旅游数据重建，关系全在 12 类内 | ✅ | 旧库 3049 节点/5075 关系/721 类已清空；重建后 381 节点 / 629 关系 / 12 类；小样本 6/6 六项硬指标 PASS |

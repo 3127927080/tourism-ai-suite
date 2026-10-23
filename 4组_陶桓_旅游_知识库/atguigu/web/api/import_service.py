@@ -2,10 +2,13 @@
 写的是文件导入部分的接口
 """
 
+import re
 import shutil
 import uuid
+from email.header import decode_header, make_header
 from pathlib import Path
 from datetime import datetime
+from urllib.parse import unquote
 
 import fastapi
 from fastapi import FastAPI, BackgroundTasks, UploadFile, File
@@ -33,6 +36,30 @@ app.add_middleware(
     allow_methods=["*"],  # 允许的请求方法
     allow_headers=["*"],  # 允许的请求头
 )
+def normalize_upload_filename(raw: str) -> str:
+    """把上传文件名规范成可落盘的安全文件名。
+
+    兼容三种来源：浏览器原样 UTF-8、RFC2047 编码（`=?utf-8?B?...?=`）、URL 百分号编码；
+    同时剥离目录部分，避免 `../` 之类路径穿越，并替换 Windows 非法字符。
+    """
+    name = str(raw or "").strip()
+    if not name:
+        return "upload.md"
+    if "=?" in name:
+        try:
+            name = str(make_header(decode_header(name)))
+        except Exception:  # noqa: BLE001
+            pass
+    if re.search(r"%[0-9A-Fa-f]{2}", name):
+        try:
+            name = unquote(name)
+        except Exception:  # noqa: BLE001
+            pass
+    name = name.replace("\\", "/").split("/")[-1]
+    name = re.sub(r'[<>:"|?*\x00-\x1f]', "_", name).strip(" .")
+    return name or "upload.md"
+
+
 @app.post("/upload")
 async def upload_file(background_tasks: BackgroundTasks,file: UploadFile = File(...)):
     """
@@ -55,8 +82,9 @@ async def upload_file(background_tasks: BackgroundTasks,file: UploadFile = File(
     #2.3判断文件是否存在,不存在则创建
     if not local_dir_obj.exists():
         local_dir_obj.mkdir(parents=True,exist_ok=True)
-    #2.4存在则先拼接文件路径
-    local_file_path = str(local_dir_obj / file.filename)
+    #2.4存在则先拼接文件路径（文件名先规范化，兼容中文与编码过的文件名）
+    safe_name = normalize_upload_filename(file.filename)
+    local_file_path = str(local_dir_obj / safe_name)
 
     #为了让前端的显示实时的进度,维护了三个状态字典,正在进行的节点字典,完成的节点字典,耗时的字典
 
