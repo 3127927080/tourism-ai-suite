@@ -46,6 +46,7 @@ class CaseRunResult:
     latency_ms: int | None = None
     input_tokens: int = 0
     output_tokens: int = 0
+    retry_attempts: int = 0
     error: str = ""
 
     @property
@@ -209,21 +210,28 @@ async def run_case(
     result = CaseRunResult(case_id=case.case_id)
 
     try:
-        # 1. 用独立会话跑完整链路；coordinator 内部负责提交 AgentRun。
-        async with session_factory() as session:
-            reader = ToolCallReader(ToolCallRepository(session))
-            executor = AgentExecutor(
-                agent=agent,
-                output_validator=AgentOutputValidator(reader),
-                max_correction_attempts=settings.agent_correction_limit,
-            )
-            coordinator = AgentRunCoordinator(session=session, executor=executor)
-            event = await coordinator.start_run(
-                user_id=user_id,
-                access_token=user_token,
-                request=_build_request(case),
-            )
-        result.run_id = event["event_data"]["run_id"]
+        # 1. 用独立会话跑完整链路；Run 失败（如结构化输出失败）时按验收口径重试（对齐 CS Worker 重试语义）
+        for attempt in range(1, 4):
+            async with session_factory() as session:
+                reader = ToolCallReader(ToolCallRepository(session))
+                executor = AgentExecutor(
+                    agent=agent,
+                    output_validator=AgentOutputValidator(reader),
+                    max_correction_attempts=settings.agent_correction_limit,
+                )
+                coordinator = AgentRunCoordinator(session=session, executor=executor)
+                event = await coordinator.start_run(
+                    user_id=user_id,
+                    access_token=user_token,
+                    request=_build_request(case),
+                )
+            run_id = event["event_data"]["run_id"]
+            result.run_id = run_id
+            result.retry_attempts = attempt
+            async with session_factory() as session:
+                probe = await AgentRunRepository(session).find_by_id(run_id)
+            if probe is not None and probe.state != AgentRunState.FAILED:
+                break
     except Exception as exc:  # noqa: BLE001 - 评估要把失败样本留下来
         result.error = f"{type(exc).__name__}: {exc}"
         return result
