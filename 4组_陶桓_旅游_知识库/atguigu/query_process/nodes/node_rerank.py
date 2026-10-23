@@ -105,7 +105,8 @@ class NodeRerank(NodeBase):
                 "title": doc.get("title", ""),
                 "content": doc.get("content", "") or "无内容",
                 "source": "web",
-                "url": doc.get("url", "")
+                "url": doc.get("url", ""),
+                **{k: doc.get(k) for k in self.META_FIELDS if k in doc},
             })
 
         # 3. 格式化图检索结果
@@ -137,7 +138,8 @@ class NodeRerank(NodeBase):
                 "title": head or "图关系",
                 "content": content,
                 "source": doc.get("source", "graph"),
-                "url": doc.get("url", "")
+                "url": doc.get("url", ""),
+                **{k: doc.get(k) for k in self.META_FIELDS if k in doc},
             })
 
         logger.info(

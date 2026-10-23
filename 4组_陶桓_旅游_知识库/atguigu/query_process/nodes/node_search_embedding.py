@@ -40,6 +40,17 @@ def escape_value(value) -> str:
     return str(value).replace("\\", "\\\\").replace("'", "\\'").replace('"', '\\"')
 
 
+# 平台规则类文档与城市无关（item_name 是文档名，不是城市），按城市过滤会全部落空
+GLOBAL_CONTENT_TYPE = "平台规则"
+
+
+def effective_item_names(item_names: list, content_type: str) -> list:
+    """平台规则类问题不做城市过滤，其余类型照常。"""
+    if content_type == GLOBAL_CONTENT_TYPE:
+        return []
+    return item_names
+
+
 def build_filter_expr(item_names: list, content_type: str, entities: list) -> str:
     """构造组合过滤表达式；无任何条件时返回空串。"""
     parts = []
@@ -104,6 +115,7 @@ class NodeSearchEmbedding(NodeBase):
         item_names = state.get("item_names") or []
         content_type = state.get("query_content_type") or ""
         entities = state.get("query_entities") or []
+        item_names = effective_item_names(item_names, content_type)
 
         chunks = self.search(item_names, content_type, entities, rewritten_query)
 

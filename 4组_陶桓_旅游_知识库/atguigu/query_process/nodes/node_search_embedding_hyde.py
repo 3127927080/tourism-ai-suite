@@ -9,6 +9,7 @@ from atguigu.query_process.base import NodeBase
 from atguigu.query_process.nodes.node_search_embedding import (
     OUTPUT_FIELDS,
     build_filter_expr,
+    effective_item_names,
 )
 from atguigu.query_process.state import QueryGraphState
 from atguigu.tool.embedding_utils import get_embeddings
@@ -105,6 +106,8 @@ class NodeSearchEmbeddingHyde(NodeBase):
 
         content_type = state.get("query_content_type") or ""
         entities = state.get("query_entities") or []
+        # 平台规则类问题不做城市过滤，与向量路保持一致
+        item_names = effective_item_names(item_names, content_type)
 
         # 第二步,调用大模型生成假设性答案
         hyde_answer = self.get_hyde_answer(rewritten_query)

@@ -153,7 +153,7 @@ NodeItemNameConfirm
 | `item_name` | VARCHAR | 100 | `city` | 查询过滤键 |
 | `content` | VARCHAR | 8000 | 切片正文 | 中文按字节计，留足 |
 | `part` | INT64 | — | 切片序号 | 0 表示未细分 |
-| `content_type` | VARCHAR | 32 | 归一化枚举 | 景点介绍/线路推荐/酒店信息/美食推荐/交通指南/文化民俗 |
+| `content_type` | VARCHAR | 32 | 归一化枚举 | 景点介绍/线路推荐/酒店信息/美食推荐/交通指南/文化民俗/**平台规则** |
 | `city` | VARCHAR | 50 | 城市/目的地/文件名前缀 | 主目的地 |
 | `cities` | VARCHAR | 512 | 目的地列表 | JSON 数组字符串 |
 | `scenic_name` | VARCHAR | 200 | 景点名称 | 文档级，缺失为 `""` |
@@ -390,7 +390,7 @@ ITEM_NAME_EXTRACT_TEMPLATE = """
 规则：
 1. cities 只能取 6 个目的地或其下属城市（昆明/大理/丽江/乌镇等），别名归并到主目的地；
 2. entities 只放真实景点/片区/酒店/餐厅名；问题里没有就返回空数组；
-3. content_type 只能取 6 个枚举之一；无法判断返回空字符串；
+3. content_type 只能取 7 个枚举之一（含 **平台规则**，供客服子查询验证退改/出票/退款/签证等政策）；无法判断返回空字符串；
 4. rewritten_query 必须能独立成立，不含代词。
 """
 ```

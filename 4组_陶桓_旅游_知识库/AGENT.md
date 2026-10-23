@@ -106,6 +106,8 @@ uv run python eval/eval.py --limit 50
 - **`eval/qa.csv` 已是 50 题旅游 QA**（2026-10-22 替换）；旧电商产物在 `eval/archive_ecommerce/`。
 - **图/网结果不带文档元数据**：`node_search_graph` 会按实体反查 Milvus 补 `source_file/city/content_type`，城市级实体走 `item_name` 兜底。
 - **三元组实体必须原文出现**：prompt 已约束，`node_graph_extract` 另有代码兜底（`dropped_hallucination`），改 prompt 时别把这条约束删掉。
+- **平台规则类文档城市无关**：`content_type=平台规则` 的 5 份文档（退改/预订/出票/退款发票/签证）`item_name` 是文档名而非城市，检索侧遇该类型会忽略城市过滤（`effective_item_names`），否则「三亚机票多久出票」这类问题会把规则文档全部排掉。
+- **content_type 枚举是 7 类**：改枚举时三处 prompt（元数据识别 / 元数据兜底 / 槽位识别）必须同步，漏改会导致新类型被识别成 `未知` 或误判成 `交通指南`。
 
 ---
 
