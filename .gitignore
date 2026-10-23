@@ -47,3 +47,13 @@ build/
 *.onnx
 .cache/
 models/
+
+# 三元组微调：模型权重与打包产物不入库（数据、脚本、报告、日志入库）
+4组_陶桓_三元组提取微调/model/
+4组_陶桓_三元组提取微调/finetuned/
+4组_陶桓_三元组提取微调/tourism_triple_deploy.tar.gz
+4组_陶桓_三元组提取微调/cloud_results/*.tar.gz
+4组_陶桓_三元组提取微调/cloud_results/**/*.safetensors
+
+# 但保留云端训练日志，作为实验记录
+!4组_陶桓_三元组提取微调/cloud_results/*.log

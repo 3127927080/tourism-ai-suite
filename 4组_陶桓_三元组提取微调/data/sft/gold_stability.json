@@ -1,0 +1,8 @@
+{
+  "samples": 200,
+  "avg_jaccard_gold_v1": 0.287,
+  "avg_jaccard_gold_v2": 0.2431,
+  "avg_jaccard_v1_v2": 0.429,
+  "avg_gold_triples": 3.73,
+  "avg_agreed_triples": 2.79
+}

@@ -1,0 +1,13 @@
+# torch 由镜像提供（2.5.x），以下为与之兼容且本地验证过的组合
+transformers>=4.51,<5.0
+trl==0.24.0
+peft>=0.13
+datasets==3.6.0
+accelerate>=1.0
+modelscope>=1.20
+openai>=1.40
+langchain-text-splitters>=0.3
+tensorboard>=2.15
+
+# 仅在跑 QLoRA（USE_4BIT=1）时需要，bf16 LoRA 不需要：
+# bitsandbytes>=0.45

@@ -1,0 +1,282 @@
+{
+  "manifest": "C:\\Users\\th\\Desktop\\4组_陶桓_实战\\4组_陶桓_三元组提取微调\\data\\smoke\\gold.jsonl",
+  "models": {
+    "responses": {
+      "response_file": "C:\\Users\\th\\Desktop\\4组_陶桓_实战\\4组_陶桓_三元组提取微调\\data\\smoke\\responses.jsonl",
+      "total_samples": 12,
+      "true_positive": 0,
+      "false_positive": 12,
+      "false_negative": 11,
+      "micro_precision": 0.0,
+      "micro_recall": 0.0,
+      "micro_f1": 0.0,
+      "exact_match": 0.0,
+      "exact_match_count": 0,
+      "format_error_rate": 0.0,
+      "format_error_count": 0,
+      "empty_prediction_rate": 0.0,
+      "empty_prediction_count": 0,
+      "duplicate_prediction_count": 0,
+      "errors": [
+        {
+          "id": 0,
+          "query": "请抽取以下句子中的三元组：\n句子：海棠湾更适合和高端酒店、免税购物联动理解。",
+          "gold": "(海棠湾, 适合, 免税购物)",
+          "prediction": "(海棠湾, 更适合, 高端酒店)",
+          "parsed_gold": [
+            [
+              "海棠湾",
+              "适合",
+              "免税购物"
+            ]
+          ],
+          "parsed_prediction": [
+            [
+              "海棠湾",
+              "更适合",
+              "高端酒店"
+            ]
+          ],
+          "format_valid": true,
+          "extra_text": ""
+        },
+        {
+          "id": 1,
+          "query": "请抽取以下句子中的三元组：\n句子：三亚湾更适合作为到达、短住和看海收尾片区。",
+          "gold": "(三亚湾, 适合, 看海)",
+          "prediction": "(三亚湾, 适合作为, 短住)",
+          "parsed_gold": [
+            [
+              "三亚湾",
+              "适合",
+              "看海"
+            ]
+          ],
+          "parsed_prediction": [
+            [
+              "三亚湾",
+              "适合作为",
+              "短住"
+            ]
+          ],
+          "format_valid": true,
+          "extra_text": ""
+        },
+        {
+          "id": 2,
+          "query": "请抽取以下句子中的三元组：\n句子：大东海更适合兼顾海边和城市便利。",
+          "gold": "(大东海, 适合, 海边)",
+          "prediction": "(大东海, 更适合, 海边和城市便利)",
+          "parsed_gold": [
+            [
+              "大东海",
+              "适合",
+              "海边"
+            ]
+          ],
+          "parsed_prediction": [
+            [
+              "大东海",
+              "更适合",
+              "海边和城市便利"
+            ]
+          ],
+          "format_valid": true,
+          "extra_text": ""
+        },
+        {
+          "id": 3,
+          "query": "请抽取以下句子中的三元组：\n句子：南山和海湾类景点的节奏差异很大。",
+          "gold": "(南山, 对比, 海湾类景点)",
+          "prediction": "(南山, 节奏差异, 海湾类景点)",
+          "parsed_gold": [
+            [
+              "南山",
+              "对比",
+              "海湾类景点"
+            ]
+          ],
+          "parsed_prediction": [
+            [
+              "南山",
+              "节奏差异",
+              "海湾类景点"
+            ]
+          ],
+          "format_valid": true,
+          "extra_text": ""
+        },
+        {
+          "id": 4,
+          "query": "请抽取以下句子中的三元组：\n句子：西岛属于需要乘船前往的海岛型目的地。",
+          "gold": "(西岛, 需要, 乘船)",
+          "prediction": "(西岛, 属于, 需要乘船前往的海岛型目的地)",
+          "parsed_gold": [
+            [
+              "西岛",
+              "需要",
+              "乘船"
+            ]
+          ],
+          "parsed_prediction": [
+            [
+              "西岛",
+              "属于",
+              "需要乘船前往的海岛型目的地"
+            ]
+          ],
+          "format_valid": true,
+          "extra_text": ""
+        },
+        {
+          "id": 5,
+          "query": "请抽取以下句子中的三元组：\n句子：鹿回头更适合傍晚到夜间的景观体验。",
+          "gold": "(鹿回头, 适合, 夜景)",
+          "prediction": "(鹿回头, 适合, 傍晚到夜间的景观体验)",
+          "parsed_gold": [
+            [
+              "鹿回头",
+              "适合",
+              "夜景"
+            ]
+          ],
+          "parsed_prediction": [
+            [
+              "鹿回头",
+              "适合",
+              "傍晚到夜间的景观体验"
+            ]
+          ],
+          "format_valid": true,
+          "extra_text": ""
+        },
+        {
+          "id": 6,
+          "query": "请抽取以下句子中的三元组：\n句子：昆明最适合作为进入云南的第一站。",
+          "gold": "(昆明, 位于, 云南)",
+          "prediction": "(昆明, 适合作为, 进入云南的第一站)",
+          "parsed_gold": [
+            [
+              "昆明",
+              "位于",
+              "云南"
+            ]
+          ],
+          "parsed_prediction": [
+            [
+              "昆明",
+              "适合作为",
+              "进入云南的第一站"
+            ]
+          ],
+          "format_valid": true,
+          "extra_text": ""
+        },
+        {
+          "id": 7,
+          "query": "请抽取以下句子中的三元组：\n句子：大理古城、洱海和丽江古城构成线路最稳定的风景骨架。",
+          "gold": "(大理古城, 邻近, 洱海)",
+          "prediction": "(大理古城, 构成, 线路最稳定的风景骨架)",
+          "parsed_gold": [
+            [
+              "大理古城",
+              "邻近",
+              "洱海"
+            ]
+          ],
+          "parsed_prediction": [
+            [
+              "大理古城",
+              "构成",
+              "线路最稳定的风景骨架"
+            ]
+          ],
+          "format_valid": true,
+          "extra_text": ""
+        },
+        {
+          "id": 8,
+          "query": "请抽取以下句子中的三元组：\n句子：厦门北站更适合高铁网络转场。",
+          "gold": "(厦门北站, 适合, 高铁转场)",
+          "prediction": "(厦门北站, 更适合, 高铁网络转场)",
+          "parsed_gold": [
+            [
+              "厦门北站",
+              "适合",
+              "高铁转场"
+            ]
+          ],
+          "parsed_prediction": [
+            [
+              "厦门北站",
+              "更适合",
+              "高铁网络转场"
+            ]
+          ],
+          "format_valid": true,
+          "extra_text": ""
+        },
+        {
+          "id": 9,
+          "query": "请抽取以下句子中的三元组：\n句子：厦门站和厦门北站是常用铁路入口。",
+          "gold": "(厦门站, 属于, 铁路入口)",
+          "prediction": "(厦门站, 入口, 厦门北站)",
+          "parsed_gold": [
+            [
+              "厦门站",
+              "属于",
+              "铁路入口"
+            ]
+          ],
+          "parsed_prediction": [
+            [
+              "厦门站",
+              "入口",
+              "厦门北站"
+            ]
+          ],
+          "format_valid": true,
+          "extra_text": ""
+        },
+        {
+          "id": 10,
+          "query": "请抽取以下句子中的三元组：\n句子：亚龙湾的沙滩和海景酒店带很有度假氛围。",
+          "gold": "(亚龙湾, 以…闻名, 沙滩)",
+          "prediction": "(亚龙湾的沙滩和海景酒店, 带, 很有度假氛围)",
+          "parsed_gold": [
+            [
+              "亚龙湾",
+              "以...闻名",
+              "沙滩"
+            ]
+          ],
+          "parsed_prediction": [
+            [
+              "亚龙湾的沙滩和海景酒店",
+              "带",
+              "很有度假氛围"
+            ]
+          ],
+          "format_valid": true,
+          "extra_text": ""
+        },
+        {
+          "id": 11,
+          "query": "请抽取以下句子中的三元组：\n句子：如果同行有父母或长辈，南山的优先级通常会明显上升。",
+          "gold": "无三元组",
+          "prediction": "(南山, 优先级, 同行)",
+          "parsed_gold": [],
+          "parsed_prediction": [
+            [
+              "南山",
+              "优先级",
+              "同行"
+            ]
+          ],
+          "format_valid": true,
+          "extra_text": ""
+        }
+      ]
+    }
+  }
+}

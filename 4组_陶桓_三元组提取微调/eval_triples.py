@@ -5,10 +5,17 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import sys
 import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+try:
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
+except Exception:
+    pass
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -36,7 +43,8 @@ def resolve_path(path: str | Path) -> Path:
 
 def normalize_field(value: str) -> str:
     value = unicodedata.normalize("NFKC", value)
-    return re.sub(r"\s+", " ", value).strip(" \t\r\n,，")
+    # 中文实体内部的空格不应参与比较（"6 天以上" 与 "6天以上" 视为同一实体）
+    return re.sub(r"\s+", "", value).strip(",，")
 
 
 def strip_wrappers(text: str) -> str:
