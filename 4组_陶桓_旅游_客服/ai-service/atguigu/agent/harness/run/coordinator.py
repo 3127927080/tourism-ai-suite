@@ -15,6 +15,7 @@ from atguigu.agent.harness.run.executor import AgentExecutor
 from atguigu.agent.harness.run.output import AgentRunOutPutMapper
 from atguigu.agent.harness.run.runtime import AgentRuntimeContext
 from atguigu.agent.harness.tasks.reducer import TaskStateReducer
+from atguigu.agent.llm.output import ReplyType
 from atguigu.app.repositories.run import AgentRunRepository
 from atguigu.app.schemas.run import AgentRunRequest
 from atguigu.common.config import get_settings
@@ -86,8 +87,11 @@ class AgentRunCoordinator:
                 request.task_state,
                 validated_result.task_update
             )
-            # 槽位齐全且本轮给出页面动作时，确定性收尾（COMPLETE），避免长期停留 COLLECTING
-            if validated_result.page_action is not None:
+            # 槽位齐全且本轮已给出结果（ANSWER）或页面动作时，确定性收尾（COMPLETE）
+            if (
+                validated_result.page_action is not None
+                or validated_result.reply_type == ReplyType.ANSWER
+            ):
                 new_task_state = task_reducer.complete_if_ready(new_task_state)
             # c) 将可信的结果映射到不同AgentRunState中
             agent_run.state, agent_run.result = AgentRunOutPutMapper.map(validated_result)
