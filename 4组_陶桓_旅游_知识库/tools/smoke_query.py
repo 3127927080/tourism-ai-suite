@@ -9,11 +9,13 @@
 
 可选追加：
     --with-rerank  跑一遍 RRF + Rerank，验证元数据在重排后没有丢失
+    --with-routes  逐路验证向量 / HyDE / 图谱 / 网络搜索与 RRF 名额
     --with-llm     跑槽位识别（调 LLM + Mongo），验证城市/别名/失败降级
 
 用法：
     uv run python tools/smoke_query.py
     uv run python tools/smoke_query.py --with-rerank
+    uv run python tools/smoke_query.py --with-routes
     uv run python tools/smoke_query.py --with-llm
     uv run python tools/smoke_query.py --all
 
@@ -230,7 +232,101 @@ def run_rerank_case() -> Outcome:
 
 
 # ============================================================
-# 三、槽位识别（LLM + Mongo）
+# 三、多路检索断言（四路 + RRF 名额）
+# ============================================================
+def route_state(query: str, item_names: list[str], content_type: str = "", entities: list[str] | None = None) -> dict:
+    """构造单路检索所需的最小 state。"""
+    return {
+        "original_query": query,
+        "rewritten_query": query,
+        "item_names": item_names,
+        "query_content_type": content_type,
+        "query_entities": entities or [],
+    }
+
+
+def run_route_cases() -> list[Outcome]:
+    """逐路验证：向量/HyDE/图谱/网络各能出结果，且 RRF 名额受配置约束。
+
+    开关关闭的路线记为 WARN 跳过，不计入失败——便于在只开部分路时复跑。
+    """
+    from atguigu.config.config import RetrievalConfig
+
+    outcomes: list[Outcome] = []
+    state = route_state("三亚亚龙湾适合什么人去", ["三亚"], "景点介绍", ["亚龙湾"])
+
+    # 路 1：向量（稠密+稀疏，必开）
+    from atguigu.query_process.nodes.node_search_embedding import NodeSearchEmbedding
+
+    outcome = Outcome(name="多路·向量检索")
+    chunks = NodeSearchEmbedding().process(state).get("embedding_chunks") or []
+    outcome.summary = f"{len(chunks)} 条"
+    if not chunks:
+        outcome.fail("向量路无结果")
+    outcomes.append(outcome)
+
+    # 路 2：HyDE
+    from atguigu.query_process.nodes.node_search_embedding_hyde import NodeSearchEmbeddingHyde
+
+    outcome = Outcome(name="多路·HyDE 检索")
+    if not RetrievalConfig.enable_hyde:
+        outcome.warn("ENABLE_HYDE=false，未参与本轮召回")
+        outcomes.append(outcome)
+    else:
+        hyde_chunks = NodeSearchEmbeddingHyde().process(state).get("hyde_embedding_chunks") or []
+        outcome.summary = f"{len(hyde_chunks)} 条"
+        if not hyde_chunks:
+            outcome.fail("HyDE 路无结果（检查 LLM 凭据与额度）")
+
+        # RRF 名额：融合后条数不得超过 rrf_top_n
+        from atguigu.query_process.nodes.node_rrf import NodeRrf
+
+        merge_state = dict(state)
+        merge_state["embedding_chunks"] = chunks
+        merge_state["hyde_embedding_chunks"] = hyde_chunks
+        rrf_chunks = NodeRrf().process(merge_state).get("rrf_chunks") or []
+        outcome.summary += f"，RRF {len(rrf_chunks)} 条"
+        if len(rrf_chunks) > RetrievalConfig.rrf_top_n:
+            outcome.fail(f"RRF 输出 {len(rrf_chunks)} 条 > 配置上限 {RetrievalConfig.rrf_top_n}")
+        outcomes.append(outcome)
+
+    # 路 3：图谱
+    from atguigu.query_process.nodes.node_search_graph import NodeSearchGraph
+
+    outcome = Outcome(name="多路·图谱检索")
+    if not RetrievalConfig.enable_graph:
+        outcome.warn("ENABLE_GRAPH=false，未参与本轮召回")
+        outcomes.append(outcome)
+    else:
+        graph_results = NodeSearchGraph().process(state).get("graph_results") or []
+        outcome.summary = f"{len(graph_results)} 条"
+        if not graph_results:
+            outcome.fail("图谱路无结果（确认已用旅游数据重建 Neo4j，且实体名可命中）")
+        elif len(graph_results) > RetrievalConfig.graph_top_n:
+            outcome.fail(f"图谱 {len(graph_results)} 条 > 配置上限 {RetrievalConfig.graph_top_n}")
+        outcomes.append(outcome)
+
+    # 路 4：网络搜索
+    from atguigu.query_process.nodes.node_web_search_mcp import NodeWebSearchMcp
+
+    outcome = Outcome(name="多路·网络搜索")
+    if not RetrievalConfig.enable_web_search:
+        outcome.warn("ENABLE_WEB_SEARCH=false，未参与本轮召回")
+        outcomes.append(outcome)
+    else:
+        docs = NodeWebSearchMcp().process(state).get("web_search_docs") or []
+        outcome.summary = f"{len(docs)} 条"
+        if not docs:
+            outcome.fail("网络搜索无结果（检查 MCP_API_KEY 与网络）")
+        elif len(docs) > RetrievalConfig.web_top_n:
+            outcome.fail(f"网搜 {len(docs)} 条 > 配置上限 {RetrievalConfig.web_top_n}")
+        outcomes.append(outcome)
+
+    return outcomes
+
+
+# ============================================================
+# 四、槽位识别（LLM + Mongo）
 # ============================================================
 def run_llm_cases() -> list[Outcome]:
     """验证 §6.1 验收：城市识别、别名归并、识别失败降级。"""
@@ -306,11 +402,13 @@ def print_report(outcomes: list[Outcome]) -> int:
 def main() -> int:
     parser = argparse.ArgumentParser(description="旅游知识库查询链路冒烟验证")
     parser.add_argument("--with-rerank", action="store_true", help="追加 RRF + Rerank 元数据透传验证")
+    parser.add_argument("--with-routes", action="store_true", help="追加四路检索断言（向量/HyDE/图谱/网络）")
     parser.add_argument("--with-llm", action="store_true", help="追加槽位识别验证（调 LLM 与 Mongo）")
-    parser.add_argument("--all", action="store_true", help="等价于 --with-rerank --with-llm")
+    parser.add_argument("--all", action="store_true", help="等价于 --with-rerank --with-routes --with-llm")
     args = parser.parse_args()
     if args.all:
         args.with_rerank = True
+        args.with_routes = True
         args.with_llm = True
 
     logger.info("开始检索层冒烟：集合=%s", MilvusConfig.chunks_collection)
@@ -319,6 +417,10 @@ def main() -> int:
     if args.with_rerank:
         logger.info("追加 RRF + Rerank 验证")
         outcomes.append(run_rerank_case())
+
+    if args.with_routes:
+        logger.info("追加四路检索验证")
+        outcomes.extend(run_route_cases())
 
     if args.with_llm:
         logger.info("追加槽位识别验证（会产生 LLM 调用）")

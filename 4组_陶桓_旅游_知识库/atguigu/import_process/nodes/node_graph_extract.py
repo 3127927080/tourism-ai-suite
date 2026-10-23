@@ -44,7 +44,9 @@ class NodeGraphExtract(NodeBase):
         all_triples = []
         dropped_format = 0       # 格式不合法（不是三元组）
         dropped_relation = 0     # 关系不在 12 类词表内
+        dropped_hallucination = 0  # 头尾实体未在本批正文中出现
         invalid_relations = []   # 记录被丢弃的关系，便于排查
+        missing_entity_samples = []  # 记录被判定为幻觉的实体，便于排查 prompt 效果
 
         for batch_idx in range(0, len(chunks), BATCH_SIZE):
             batch = chunks[batch_idx:batch_idx + BATCH_SIZE]
@@ -67,6 +69,8 @@ class NodeGraphExtract(NodeBase):
                 continue
 
             combined_content = "\n\n---\n\n".join(combined_parts)
+            # 去掉空白后的正文，用于校验实体是否原样出现
+            batch_text = self._normalize(combined_content)
 
             # 2. 构造批量提取提示词（关系词表与 relation_schema 同源）
             batch_user_prompt = TRIPLE_EXTRACTION_BATCH_TEMPLATE.format(content=combined_content)
@@ -99,6 +103,13 @@ class NodeGraphExtract(NodeBase):
                                 if relation not in invalid_relations:
                                     invalid_relations.append(relation)
                                 continue
+                            # 代码兜底：头尾实体必须在本批正文中原样出现，否则视为幻觉丢弃
+                            if not (self._appears_in(head, batch_text) and self._appears_in(tail, batch_text)):
+                                dropped_hallucination += 1
+                                for ent in (head, tail):
+                                    if not self._appears_in(ent, batch_text) and ent not in missing_entity_samples:
+                                        missing_entity_samples.append(ent)
+                                continue
                             valid_triples.append([head, relation, tail])
                         all_triples.extend(valid_triples)
                         logger.info(
@@ -124,13 +135,27 @@ class NodeGraphExtract(NodeBase):
 
         logger.info(
             f"总共提取到 {len(unique_triples)} 个唯一三元组"
-            f"（丢弃：格式异常 {dropped_format}，关系越界 {dropped_relation}）"
+            f"（丢弃：格式异常 {dropped_format}，关系越界 {dropped_relation}，"
+            f"实体不在正文 {dropped_hallucination}）"
         )
         if invalid_relations:
             logger.warning(f"被丢弃的关系词：{invalid_relations[:10]}")
+        if missing_entity_samples:
+            logger.warning(f"被判定不在正文的实体样例：{missing_entity_samples[:10]}")
         return {
             "triples": unique_triples
         }
+
+    @staticmethod
+    def _normalize(text: str) -> str:
+        """去掉所有空白，避免换行/空格造成子串匹配失败。"""
+        return re.sub(r"\s+", "", text or "")
+
+    @classmethod
+    def _appears_in(cls, entity: str, normalized_text: str) -> bool:
+        """实体（去空白后）是否为正文子串。"""
+        normalized = cls._normalize(entity)
+        return bool(normalized) and normalized in normalized_text
 
     @staticmethod
     def _extract_json(raw: str) -> str:

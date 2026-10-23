@@ -59,10 +59,14 @@ class RetrievalMainGraphRunner:
 
     @staticmethod
     def route_after_rrf(state: QueryGraphState):
-        # 三路都没有候选时跳过重排，避免空文档调用 Rerank 接口
-        if not state.get("rrf_chunks") and not state.get("graph_results"):
-            return END
-        return NodeRerank.name
+        # 按实际启用的路判空：RRF 结果、图谱结果任一非空都要进重排
+        if (
+            state.get("rrf_chunks")
+            or state.get("graph_results")
+            or state.get("web_search_docs")
+        ):
+            return NodeRerank.name
+        return END
 
     def run(self, state):
         if not self.graph:

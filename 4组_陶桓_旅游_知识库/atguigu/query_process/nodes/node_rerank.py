@@ -36,6 +36,11 @@ class NodeRerank(NodeBase):
         # 1. 合并所有结果
         merged_chunks, rewritten_query = self.get_merged_chunks(state)
 
+        # 三路全空时直接返回，避免用空文档列表调用 Rerank 接口
+        if not merged_chunks:
+            logger.warning("三路均无候选文档，跳过 Rerank")
+            return {"reranked_docs": []}
+
         # 2. 调用 Rerank 模型打分
         rerank_chunks = self.get_rerank_chunks(merged_chunks, rewritten_query)
 

@@ -3,7 +3,7 @@ import json
 
 from agents.mcp import MCPServerStreamableHttp
 
-from atguigu.config.config import McpConfig
+from atguigu.config.config import McpConfig, RetrievalConfig
 from atguigu.query_process.base import NodeBase
 from atguigu.query_process.state import QueryGraphState
 from atguigu.tool.json_format_tool import json_format
@@ -27,26 +27,30 @@ class NodeWebSearchMcp(NodeBase):
         # 第一步,获取上步的改写问题
         rewritten_query = state.get("rewritten_query", "")
         if not rewritten_query:
-            logger.error("请输入要检索的问题")
-            raise Exception("请输入要检索的问题")
+            logger.warning("未提供改写后的问题，跳过网络搜索")
+            return {"web_search_docs": []}
 
-        #第二步,调用云百炼的mcp网络查询服务
-        import asyncio
-        res = asyncio.run(self.mcp_run(rewritten_query))
-        datas = json.loads(res.content[0].text).get("pages")
-        # logger.info(json_format(datas))
+        # 第二步,调用云百炼的mcp网络查询服务；失败只丢本路，不影响其余检索路
+        try:
+            import asyncio
+            res = asyncio.run(self.mcp_run(rewritten_query))
+            pages = json.loads(res.content[0].text).get("pages") or []
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"网络搜索失败，本路降级为空：{type(exc).__name__}: {exc}")
+            return {"web_search_docs": []}
 
-        return {
-            "web_search_docs": [
-                {
-                    "content": item.get("snippet", ""),
-                    "title": item.get("title", ""),
-                    "url": item.get("url", ""),
-                    "source": "web"
-                }
-                for item in datas
-            ]
-        }
+        limit = RetrievalConfig.web_top_n
+        docs = [
+            {
+                "content": item.get("snippet", ""),
+                "title": item.get("title", ""),
+                "url": item.get("url", ""),
+                "source": "web"
+            }
+            for item in pages[:limit]
+        ]
+        logger.info(f"网络搜索返回 {len(docs)} 条（上限 {limit}）")
+        return {"web_search_docs": docs}
 
     async def mcp_run(self, query) -> None:
         token = McpConfig.api_key
@@ -56,13 +60,13 @@ class NodeWebSearchMcp(NodeBase):
                 params={
                     "url": url,
                     "headers": {"Authorization": f"Bearer {token}"},
-                    "timeout": 10,
+                    "timeout": RetrievalConfig.web_timeout,
                 },
                 cache_tools_list=True,
                 max_retry_attempts=3,
-                client_session_timeout_seconds=30
+                client_session_timeout_seconds=max(30, int(RetrievalConfig.web_timeout * 3))
         ) as server:
-            result = await server.call_tool("bailian_web_search", arguments={"query": query, "count": 10})
+            result = await server.call_tool("bailian_web_search", arguments={"query": query, "count": RetrievalConfig.web_top_n})
             return result
 
 

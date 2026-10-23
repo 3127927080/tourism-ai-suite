@@ -3,7 +3,7 @@ import json
 
 from langchain.chat_models import init_chat_model
 
-from atguigu.config.config import LLMConfig, MilvusConfig
+from atguigu.config.config import LLMConfig, MilvusConfig, RetrievalConfig
 from atguigu.config.prompt import HYDE_PROMPT
 from atguigu.query_process.base import NodeBase
 from atguigu.query_process.nodes.node_search_embedding import (
@@ -92,23 +92,44 @@ class NodeSearchEmbeddingHyde(NodeBase):
         :return: 更新后的状态对象
         """
         logger.info(f"【{self.name}】节点逻辑")
+        # 单路失败只丢 HyDE 这一路，不影响向量检索与其余检索路
+        try:
+            return self._run(state)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"HyDE 检索失败，本路降级为空：{type(exc).__name__}: {exc}")
+            return {"hyde_embedding_chunks": []}
+
+    def _run(self, state: QueryGraphState):
         # 第一步,获取上一步重写的问题
         item_names, rewritten_query = self.get_rewitten_query(state)
 
-        #2,第二步,调用大模型生成假设性答案
+        content_type = state.get("query_content_type") or ""
+        entities = state.get("query_entities") or []
+
+        # 第二步,调用大模型生成假设性答案
         hyde_answer = self.get_hyde_answer(rewritten_query)
 
-        #3,讲生成的答案和问题组合,然后向量化去查表
-        hyde_embedding_chunks = self.get_hyde_embedding_chunks(
-            hyde_answer,
-            item_names,
-            rewritten_query,
-            content_type=state.get("query_content_type") or "",
-            entities=state.get("query_entities") or [],
+        # 第三步,把生成的答案和问题组合后向量化查表
+        chunks = self.get_hyde_embedding_chunks(
+            hyde_answer, item_names, rewritten_query,
+            content_type=content_type, entities=entities,
         )
 
-        # return state
-        return {"hyde_embedding_chunks": hyde_embedding_chunks}
+        # 与向量路一致的两级回退：内容类型/实体过滤过严时放宽，避免 HyDE 路白跑
+        if not chunks and content_type and RetrievalConfig.content_type_fallback:
+            logger.info(f"HyDE content_type={content_type} 无结果，回退为不过滤内容类型")
+            chunks = self.get_hyde_embedding_chunks(
+                hyde_answer, item_names, rewritten_query,
+                content_type="", entities=entities,
+            )
+        if not chunks and entities:
+            logger.info("HyDE 实体过滤无结果，回退为不加实体条件")
+            chunks = self.get_hyde_embedding_chunks(
+                hyde_answer, item_names, rewritten_query,
+                content_type=content_type, entities=[],
+            )
+
+        return {"hyde_embedding_chunks": chunks}
 
 
 if __name__ == "__main__":

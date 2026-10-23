@@ -24,6 +24,7 @@ app = FastAPI(
 SOURCE_LABELS = {
     "local": "知识库文档",
     "graph": "知识图谱",
+    "web": "网络搜索",
 }
 
 # 客服检索会话统一前缀，避免污染用户侧会话历史

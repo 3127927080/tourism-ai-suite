@@ -84,7 +84,12 @@ class TourismConfig:
 
 
 class RetrievalConfig:
-    """检索路开关：本期只开向量 + RRF + Rerank，其余默认关闭。"""
+    """检索路开关与融合名额。
+
+    分层融合：只有 Milvus 出来的结果（稠密+稀疏、HyDE）做 RRF 倒排融合，
+    取 RRF 前 rrf_top_n 条；图检索、网络搜索各取固定条数，三者在 Rerank 汇合。
+    图/网不进 RRF，避免为异构结构（图谱路径、网页片段）构造伪排名。
+    """
 
     enable_hyde = os.getenv("ENABLE_HYDE", "false").lower() == "true"
     enable_graph = os.getenv("ENABLE_GRAPH", "false").lower() == "true"
@@ -92,6 +97,15 @@ class RetrievalConfig:
 
     # content_type 过滤无结果时，是否自动回退为不过滤
     content_type_fallback = True
+
+    # 融合名额（可按 Ragas 结果下调，如图/网各 5 条）
+    rrf_top_n = int(os.getenv("RRF_TOP_N", "10"))
+    graph_top_n = int(os.getenv("GRAPH_TOP_N", "10"))
+    web_top_n = int(os.getenv("WEB_TOP_N", "10"))
+
+    # 单路超时（秒）：超时只丢该路，不影响其余检索路
+    graph_timeout = float(os.getenv("GRAPH_TIMEOUT", "5"))
+    web_timeout = float(os.getenv("WEB_TIMEOUT", "8"))
 
 
 class ImportConfig:

@@ -61,7 +61,7 @@
 | 13 | 图谱 | **本期只冻结关系词表与抽取 prompt，不重建 Neo4j** |
 | 14 | 集合 | 新建 `chunks_tourism_v1` / `item_name_tourism_v1`，旧集合保留 |
 | 15 | 切分 | 保持 500/50，只修 bug 与元数据段 |
-| 16 | 8005 检索链路 | **向量 + RRF + Rerank**，默认关闭 HyDE / 图谱 / 网络搜索 |
+| 16 | 8005 检索链路 | ~~向量 + RRF + Rerank，默认关闭 HyDE / 图谱 / 网络搜索~~ → **2026-10-23 修订：本地三路（稠密+稀疏 / HyDE / 图谱）+ 分层融合；8003 额外开网络搜索** |
 | 17 | 批量入库 | 新增脚本调用 8004 `/upload`，不改服务接口 |
 | 18 | 评估集 | 我生成 50 QA（5 类 × 10），你抽检后写入 `eval/qa.csv` |
 | 19 | 完成标准 | 30 份全量入库 + 5 类各 2 条人工验证 + Ragas 出分存档 |
@@ -90,40 +90,54 @@
 
 ### 3.2 查询链路（改造后）
 
-**8005（客服检索）**
+**8005（客服检索，本地三路，不含网络搜索）**
 
 ```text
 NodeItemNameConfirm
   → LLM 输出 {cities, entities, content_type, rewritten_query}
   → 对齐 item_name_tourism_v1，得到 parent_item_name 集合
   → 失败（空）→ 不澄清，继续
-NodeSearchEmbedding
-  → item_name in cities（为空则不加 expr）
-  → content_type == X（可选）
-  → json_contains(entities, ...)（可选）
-  → 混合检索 dense + sparse
-NodeRrf → NodeRerank（保留元数据）
+┌ NodeSearchEmbedding    混合检索 dense + sparse（item_name / content_type / entities 过滤）
+├ NodeSearchEmbeddingHyde HyDE：LLM 生成假设性答案后检索（带 content_type/实体两级回退）
+└ NodeSearchGraph         槽位实体精确匹配 → 正则兜底 → 城市兜底（5s 超时）
+                              ↓
+NodeRrf（只融合前两路，倒排融合，取 RRF_TOP_N 条）
+                              ↓
+NodeRerank（RRF 结果 + 图谱 GRAPH_TOP_N 条，统一重排）
 → 返回 items[]
 ```
 
-**8003（对话问答）**
+**8003（对话问答，四路）**
 
 ```text
-NodeItemNameConfirm → 向量检索 → RRF → Rerank → NodeAnswerOutput
-  → 答案末尾追加【参考来源】
-  → SSE 推送（协议不变）
+NodeItemNameConfirm
+  → 向量 / HyDE / 图谱 / MCP 网络搜索 四路并行
+  → NodeRrf（只融合 Milvus 两路）
+  → NodeRerank（RRF + 网页 WEB_TOP_N 条 + 图谱 GRAPH_TOP_N 条）
+  → NodeAnswerOutput → 答案末尾追加【参考来源】→ SSE 推送（协议不变）
 ```
 
-### 3.3 开关
+**分层融合原则**：只有 Milvus 出来的结果结构适合做 RRF 倒排融合；图谱路径与网页片段结构异构，不进 RRF，各自截断后在 Rerank 汇合，既省时间又避免为异构结果构造伪排名。
+
+### 3.3 开关与名额
 
 | 开关 | 默认 | 作用 |
 |---|---|---|
-| `ENABLE_HYDE` | `false` | 8003/8005 是否启用 HyDE 路 |
+| `ENABLE_HYDE` | `false` | 是否启用 HyDE 路 |
 | `ENABLE_GRAPH` | `false` | 是否启用 Neo4j 图检索路 |
 | `ENABLE_WEB_SEARCH` | `false` | 8003 是否启用 MCP 网络搜索 |
 | `TRIPLE_EXTRACTOR_MODE` | `off` | 三元组抽取（本期 `off`） |
 
+| 名额 / 超时 | 默认 | 作用 |
+|---|---|---|
+| `RRF_TOP_N` | `10` | RRF 融合后进入 Rerank 的条数 |
+| `GRAPH_TOP_N` | `10` | 图谱进入 Rerank 的条数 |
+| `WEB_TOP_N` | `10` | 网络搜索进入 Rerank 的条数 |
+| `GRAPH_TIMEOUT` | `5` | 图检索超时（秒），超时只丢该路 |
+| `WEB_TIMEOUT` | `8` | 网络搜索超时（秒），超时只丢该路 |
+
 > 三个开关必须同时作用于 `retrieval_main_graph.py` 与 `query_main_graph.py` 的 fanout，否则关闭的节点仍会被调用。
+> 任一路异常/超时只降级该路为空，其余路照常进融合与重排。
 
 ---
 
@@ -898,7 +912,27 @@ def search_travel_knowledge(query, top_k, content_type=None, city=None, entities
 
 ---
 
-## 7. 8005 接口契约
+### 6.8 多路检索（2026-10-23 新增）
+
+| 文件 | 改动 |
+|---|---|
+| `config/config.py` | `RetrievalConfig` 新增 `rrf_top_n` / `graph_top_n` / `web_top_n` / `graph_timeout` / `web_timeout` |
+| `query_process/nodes/node_rrf.py` | 删掉 `TOTAL_RERANK=30 / WEB_FIXED=10` 旧常量与 `vector_weight` 反推；只融合 Milvus 两路，条数取 `rrf_top_n` |
+| `query_process/nodes/node_rerank.py` | 三路全空直接返回，不再用空列表调用 Rerank 接口 |
+| `query_process/nodes/node_search_graph.py` | 槽位优先匹配 + 正则/城市兜底；名额取 `graph_top_n`；整路超时与异常隔离 |
+| `query_process/nodes/node_search_embedding_hyde.py` | 单路异常降级为空；补 content_type / 实体两级回退 |
+| `query_process/nodes/node_web_search_mcp.py` | 超时与结果条数走配置；异常降级为空 |
+| `query_process/retrieval_main_graph.py` | `route_after_rrf` 按「RRF / 图 / 网任一非空」判定是否进 Rerank |
+| `import_process/nodes/node_graph_extract.py` | 头尾实体必须出现在本批正文，否则丢弃（`dropped_hallucination`） |
+| `config/prompt.py` | 批量抽取 prompt 要求实体原样照抄，禁止把描述性从句当实体 |
+| `tools/inspect_graph.py`（新增） | Neo4j 只读计数 / 关系分布 / 实体查询，`--wipe --yes` 清库 |
+| `tools/check_graph_sample.py`（新增） | 6 类各 1 份小样本 + 六项硬指标 |
+| `tools/smoke_query.py` | 新增 `--with-routes`：逐路断言 + RRF 名额上限校验 |
+| `web/api/knowledge_service.py` | `SOURCE_LABELS` 补 `web → 网络搜索` |
+
+**验收**：`smoke_query.py --with-routes` 四路各有命中；RRF 输出不超过 `RRF_TOP_N`；单路失败只降级该路。
+
+---
 
 ### 7.1 请求
 
@@ -991,10 +1025,11 @@ RELATION_TYPES = ["位于", "属于", "包含", "途经", "推荐",
 1. 把 `RELATION_TYPES` 改为上述 12 类
 2. 把三元组抽取 prompt 改为旅游域，并明确「只允许这 12 类关系」
 3. 删除 `node_search_graph.py` 中的 HAK 180 特判
-4. **不重抽、不重建 Neo4j**；`ENABLE_GRAPH=false`
-5. 在图谱项目评估通过后，再执行重建
+4. ~~不重抽、不重建 Neo4j；`ENABLE_GRAPH=false`~~ → **2026-10-23 已重建**：清空旧库（3049 节点 / 5075 关系 / 721 类关系词，含 HAK180 电商残留）后，用旅游数据全量重抽并写图（`ENABLE_GRAPH_EXTRACT=true`）
+5. 抽取口径：头尾实体必须原样出现在所在正文（prompt 约束 + `node_graph_extract` 代码兜底），否则丢弃
+6. 图检索：槽位实体精确匹配 → 正则 `CONTAINS` 兜底 → 城市兜底，5s 超时、异常隔离
 
-**验收**：`grep -r "HAK 180\|HAK180" atguigu/` 无结果；8005 默认不返回 `source=知识图谱`。
+**验收**：`grep -r "HAK 180\|HAK180" atguigu/` 无结果；`tools/inspect_graph.py` 节点数 > 0 且关系类型全部落在 12 类内；`tools/check_graph_sample.py` 6 份样本六项硬指标全 PASS。
 
 ---
 
@@ -1025,6 +1060,8 @@ RELATION_TYPES = ["位于", "属于", "包含", "途经", "推荐",
 | 6 | 8003 `/query` 与 SSE 行为不退化 | ✅ | SSE 实测：progress × 11、delta × 280、final × 1，答案含【参考来源】；事件类型未变 |
 | 6b | 8004 `/upload` 行为不退化 | ⏸ 未验 | 本期未跑上传链路（依赖 MinerU/视觉额度），留待后续 |
 | 7 | 8005 无 token 401、有 token 200，新旧请求均可用 | ✅ | 401 / 200 实测；新请求 `city + content_type` 过滤生效，`duration_days/estimated` 字段正常 |
+| 8 | 多路检索：向量 / HyDE / 图谱 / 网络各自可用，单路失败只降级该路 | 进行中 | 小样本图抽取 6/6 PASS；`smoke_query.py --with-routes` 待跑 |
+| 9 | 图谱重建：旧电商图清空后用旅游数据重建，关系全在 12 类内 | 进行中 | 旧库 3049 节点已清空，全量 36 份重建中 |
 
 ### 9.3 验收命令
 

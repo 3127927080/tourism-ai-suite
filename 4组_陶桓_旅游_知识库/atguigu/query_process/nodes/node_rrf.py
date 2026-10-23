@@ -1,5 +1,6 @@
 # atguigu/query_process/nodes/node_rrf.py
 
+from atguigu.config.config import RetrievalConfig
 from atguigu.query_process.base import NodeBase
 from atguigu.query_process.state import QueryGraphState
 from atguigu.tool.json_format_tool import json_format
@@ -9,77 +10,67 @@ from atguigu.tool.logger import logger
 class NodeRrf(NodeBase):
     """
     节点功能：Reciprocal Rank Fusion（倒数排名融合）
-    将多路召回的结果进行加权融合排序。
-    根据 vector_weight 动态调整输出条数。
+    只融合 Milvus 出来的两路结果：稠密+稀疏向量路、HyDE 路。
+    图谱路与网络搜索路结构异构，不进 RRF，由 Rerank 节点统一合并。
+    输出条数由 RetrievalConfig.rrf_top_n 决定。
     """
 
     name: str = "node_rrf"
+
+    # RRF 常数，控制排名靠前文档的分数衰减速度
+    RRF_K = 60
 
     def process(self, state: QueryGraphState):
         logger.info(f"【{self.name}】节点逻辑")
 
         # 1. 获取输入
-        embedding_chunks = state.get("embedding_chunks", [])
-        hyde_embedding_chunks = state.get("hyde_embedding_chunks", [])
+        embedding_chunks = state.get("embedding_chunks") or []
+        hyde_embedding_chunks = state.get("hyde_embedding_chunks") or []
 
         if not embedding_chunks and not hyde_embedding_chunks:
             logger.warning("没有向量检索结果，RRF 跳过")
             return {"rrf_chunks": []}
 
-        # 2. 根据权重计算 RRF 输出条数
-        vector_weight = state.get("vector_weight", 0.5)
-        TOTAL_RERANK = 30
-        WEB_FIXED = 10
-        OTHER_COUNT = TOTAL_RERANK - WEB_FIXED  # 20
+        # 2. 融合名额直接取配置，不再按 vector_weight 反推
+        rrf_limit = RetrievalConfig.rrf_top_n
+        logger.info(
+            f"RRF 输入：向量 {len(embedding_chunks)} 条，HyDE {len(hyde_embedding_chunks)} 条，"
+            f"输出上限 {rrf_limit} 条"
+        )
 
-        # 向量类应占数量 = 20 * vector_weight
-        # 最少 2 条，最多 18 条
-        rrf_limit = max(2, min(18, int(OTHER_COUNT * vector_weight)))
-        logger.info(f"vector_weight={vector_weight}, RRF 输出 {rrf_limit} 条")
-
-        # 3. RRF 融合
-        weight_embedding = [
-            (embedding_chunks, 1),
-            (hyde_embedding_chunks, 1),
-        ]
-
-        k = 60
+        # 3. RRF 融合：两路等权
         rrf_chunks_dict = {}
-
-        for chunks, weight in weight_embedding:
+        for chunks, weight in ((embedding_chunks, 1), (hyde_embedding_chunks, 1)):
             for idx, chunk in enumerate(chunks):
                 chunk_id = chunk.get("id")
                 if chunk_id is None:
-                    # 如果没有 id，用 content 的前 100 字符作为标识
+                    # 没有 id 时用正文前 100 字符作为去重标识
                     chunk_id = chunk.get("content", "")[:100]
                     if not chunk_id:
                         continue
 
                 # RRF 分数：weight / (k + rank)
-                rrf_score = weight / (k + idx)
+                rrf_score = weight / (self.RRF_K + idx)
 
                 if chunk_id in rrf_chunks_dict:
-                    # 已存在，累加 RRF 分数
                     rrf_chunks_dict[chunk_id]["rrf_score"] += rrf_score
                 else:
-                    # 新文档，初始化
                     chunk_copy = chunk.copy()
                     chunk_copy["rrf_score"] = rrf_score
                     # 保留原始分数用于调试
                     chunk_copy["original_score"] = chunk.get("score", 0)
                     rrf_chunks_dict[chunk_id] = chunk_copy
 
-        # 4. 按 RRF 分数排序
+        # 4. 按 RRF 分数排序并截断
         rrf_chunks = sorted(
             rrf_chunks_dict.values(),
             key=lambda x: x["rrf_score"],
             reverse=True
-        )
+        )[:rrf_limit]
 
-        # 5. 返回前 rrf_limit 条
-        logger.info(f"RRF 融合完成，共 {len(rrf_chunks)} 条，取前 {rrf_limit} 条")
+        logger.info(f"RRF 融合完成，去重后取前 {len(rrf_chunks)} 条")
         return {
-            "rrf_chunks": rrf_chunks[:rrf_limit]
+            "rrf_chunks": rrf_chunks
         }
 
 
