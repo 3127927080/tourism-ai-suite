@@ -34,7 +34,7 @@ const choiceSending = ref(false)
 const pendingConsult = ref(null)
 const messageList = ref(null)
 const refundPanel = ref(null)
-const form = reactive({ refundKind: 'full', refundReason: '', travelerName: '', travelerPhone: '' })
+const form = reactive({ refundKind: 'full', refundReason: '', travelerName: '', travelerPhone: '', ticketType: 'complaint', issueDescription: '' })
 let realtime
 
 const ORDER_TYPES = { hotel: '酒店', scenic: '景区门票', ticket: '票务', transfer: '接送服务' }
@@ -44,7 +44,7 @@ const TICKET_STATUS = { open: '待处理', processing: '处理中', closed: '已
 
 const path = computed(() => route.value.split('?')[0])
 const query = computed(() => new URLSearchParams(route.value.split('?')[1] || ''))
-const orderMatch = computed(() => path.value.match(/^\/me\/orders\/([^/]+)(?:\/(cancel|travelers|refund))?$/))
+const orderMatch = computed(() => path.value.match(/^\/me\/orders\/([^/]+)(?:\/(cancel|travelers|refund|ticket))?$/))
 const orderId = computed(() => orderMatch.value?.[1] || '')
 const operation = computed(() => orderMatch.value?.[2] || '')
 const selectedProfile = computed(() => demoUsers.value.find((user) => user.id === selectedUser.value))
@@ -80,6 +80,7 @@ const pageTitle = computed(() => {
   if (operation.value === 'cancel') return '取消预订'
   if (operation.value === 'travelers') return '修改出行人'
   if (operation.value === 'refund') return '申请退款'
+  if (operation.value === 'ticket') return '提交工单'
   return '订单详情'
 })
 
@@ -274,7 +275,7 @@ async function loadOrder() {
   try { tickets.value = unwrap(await tourismApi.tickets(session.token, orderId.value)) } catch { /* 无 */ }
   form.travelerName = trip.value?.traveler_info?.[0]?.['姓名'] || ''
   form.travelerPhone = trip.value?.traveler_info?.[0]?.['手机'] || ''
-  if (query.value.get('section') === 'refunds') {
+  if (['refunds', 'tickets'].includes(query.value.get('section'))) {
     await nextTick()
     refundPanel.value?.scrollIntoView({ behavior: 'smooth', block: 'center' })
   }
@@ -359,6 +360,14 @@ async function submitRefund() {
     async () => unwrap(await tourismApi.createRefund(session.token, orderId.value, { kind: form.refundKind, reason: form.refundReason })),
     '退款申请已提交',
     `/me/orders/${orderId.value}?section=refunds`,
+  )
+}
+
+async function submitTicket() {
+  await runWrite(
+    async () => unwrap(await tourismApi.createTicket(session.token, orderId.value, { ticket_type: form.ticketType, issue_description: form.issueDescription })),
+    '工单已提交',
+    `/me/orders/${orderId.value}?section=tickets`,
   )
 }
 
@@ -611,7 +620,7 @@ watch(route, loadPage)
             <h2>订单操作</h2>
             <button v-if="canCancel" class="danger-outline" @click="navigate(`/me/orders/${order.id}/cancel`)">取消预订</button>
             <button v-if="canRefund" class="text-button" @click="navigate(`/me/orders/${order.id}/refund`)">申请退款</button>
-            <span v-if="!canCancel && !canRefund" class="muted">当前没有其他可用操作</span>
+            <button class="text-button" @click="navigate(`/me/orders/${order.id}/ticket`)">提交工单</button>
           </article>
         </section>
 
@@ -628,6 +637,12 @@ watch(route, loadPage)
             <label>姓名<input v-model="form.travelerName" required :disabled="!canEditTraveler" /></label>
             <label>手机号<input v-model="form.travelerPhone" required :disabled="!canEditTraveler" /></label>
             <button :disabled="loading || !canEditTraveler">保存出行人</button>
+          </form>
+          <form v-else-if="operation === 'ticket'" class="panel operation-panel" @submit.prevent="submitTicket()">
+            <h2>提交工单</h2>
+            <label>工单类型<select v-model="form.ticketType"><option value="after_sale">售后</option><option value="complaint">投诉</option><option value="refund">退款</option></select></label>
+            <label>问题描述<textarea v-model="form.issueDescription" rows="4" minlength="2" maxlength="1000" placeholder="请描述遇到的问题" required /></label>
+            <button :disabled="loading || !form.issueDescription.trim()">提交工单</button>
           </form>
           <form v-else class="panel operation-panel" @submit.prevent="canRefund && submitRefund()">
             <h2>退款信息</h2>

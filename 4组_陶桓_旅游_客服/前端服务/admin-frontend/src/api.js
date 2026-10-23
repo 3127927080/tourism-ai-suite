@@ -42,15 +42,6 @@ export const adminApi = {
   aiMetrics: (token) => apiFetch(AI_SERVICE_URL, '/api/v1/admin/metrics', token),
   runs: (token) => apiFetch(AI_SERVICE_URL, '/api/v1/runs', token),
   run: (token, id) => apiFetch(AI_SERVICE_URL, `/api/v1/runs/${id}`, token),
-  documents: (token) => apiFetch(AI_SERVICE_URL, '/api/v1/knowledge/documents', token),
-  upload: async (token, file, title, category) => {
-    const body = new FormData()
-    body.append('file', file)
-    body.append('title', title)
-    body.append('category', category)
-    return apiFetch(AI_SERVICE_URL, '/api/v1/knowledge/documents', token, { method: 'POST', body })
-  },
-  evaluate: (token) => apiFetch(AI_SERVICE_URL, '/api/v1/evaluations/run', token, { method: 'POST' }),
 }
 
 export function createRealtimeConnection(token, callbacks = {}) {

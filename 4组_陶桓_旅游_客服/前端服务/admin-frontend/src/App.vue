@@ -6,19 +6,15 @@ const section = ref('handoffs')
 const account = ref(localStorage.getItem('staff_id') || 'admin_001')
 const session = reactive({ token: '', principal: null, name: '' })
 const accepting = ref(false)
-const uploading = ref(false)
 const error = ref('')
 const notice = ref('')
 const handoffs = ref([])
 const selectedHandoff = ref(null)
 const conversation = ref(null)
 const reply = ref('')
-const documents = ref([])
 const runs = ref([])
 const selectedRun = ref(null)
 const metrics = reactive({ service: {}, commerce: {}, ai: {} })
-const upload = reactive({ file: null, title: '', category: 'policy' })
-const evaluation = ref(null)
 let realtime
 let handoffRefreshTimer
 
@@ -87,7 +83,6 @@ async function authenticate() {
 async function loadSection() {
   selectedRun.value = null
   if (section.value === 'handoffs') await loadHandoffs()
-  if (section.value === 'knowledge') documents.value = await adminApi.documents(session.token)
   if (section.value === 'observability') await loadObservability()
 }
 
@@ -149,23 +144,6 @@ async function resolveHandoff() {
   })
 }
 
-async function submitDocument() {
-  if (!upload.file) return
-  uploading.value = true
-  error.value = ''
-  try {
-    await adminApi.upload(session.token, upload.file, upload.title || upload.file.name, upload.category)
-    upload.file = null
-    upload.title = ''
-    notice.value = '文档已进入索引队列'
-    documents.value = await adminApi.documents(session.token)
-  } catch (cause) {
-    error.value = cause.message
-  } finally {
-    uploading.value = false
-  }
-}
-
 async function loadObservability() {
   const requests = [
     adminApi.runs(session.token)
@@ -190,13 +168,6 @@ async function loadObservability() {
 
 async function inspectRun(run) {
   await execute(async () => { selectedRun.value = await adminApi.run(session.token, run.id) })
-}
-
-async function runEvaluation() {
-  await execute(async () => {
-    evaluation.value = await adminApi.evaluate(session.token)
-    notice.value = '评测已完成'
-  })
 }
 
 async function execute(action) {
@@ -258,18 +229,12 @@ onBeforeUnmount(() => {
         </div>
       </section>
 
-      <section v-else-if="section === 'knowledge'" class="knowledge-layout">
-        <form class="panel upload" @submit.prevent="submitDocument"><p>ADD SOURCE</p><h2>上传知识文档</h2><label>文件<input type="file" accept=".txt,.md,.markdown,.pdf" required @change="upload.file = $event.target.files[0]" /></label><label>标题<input v-model="upload.title" placeholder="默认使用文件名" /></label><label>分类<select v-model="upload.category"><option value="policy">规则政策</option><option value="product">旅游知识</option><option value="service">服务话术</option><option value="general">通用</option></select></label><button v-if="isAdmin" :disabled="uploading || !upload.file">{{ uploading ? '上传中…' : '上传并索引' }}</button><small v-else>仅管理员可以上传知识</small></form>
-        <div class="panel documents"><div class="panel-title"><h2>知识文档</h2><span>{{ documents.length }}</span></div><div class="document-scroll"><table><thead><tr><th>标题</th><th>分类</th><th>状态</th><th>版本</th></tr></thead><tbody><tr v-for="item in documents" :key="item.id"><td><strong>{{ item.title }}</strong><small>{{ item.source_name }}</small></td><td>{{ item.category }}</td><td><span :class="['state', item.status]">{{ item.status }}</span></td><td>v{{ item.version }}</td></tr></tbody></table><div v-if="!documents.length" class="empty"><strong>暂无知识文档</strong></div></div></div>
-      </section>
-
       <section v-else class="observability-layout">
         <div v-if="isAdmin" class="metrics"><article><span>AI Runs</span><strong>{{ metrics.ai.agent_runs || 0 }}</strong><small>平均 {{ metrics.ai.average_latency_ms || 0 }} ms</small></article><article><span>Token 用量</span><strong>{{ (metrics.ai.input_tokens || 0) + (metrics.ai.output_tokens || 0) }}</strong><small>输入 {{ metrics.ai.input_tokens || 0 }} · 输出 {{ metrics.ai.output_tokens || 0 }}</small></article><article><span>会话</span><strong>{{ metrics.service.conversations || 0 }}</strong><small>{{ metrics.service.queued || 0 }} 个排队</small></article><article><span>人工介入</span><strong>{{ metrics.service.handoffs || 0 }}</strong><small>{{ metrics.service.human || 0 }} 个进行中</small></article><article><span>退款单</span><strong>{{ metrics.commerce.refunds || 0 }}</strong><small>{{ metrics.commerce.orders || 0 }} 笔订单 · {{ metrics.commerce.tickets || 0 }} 个工单</small></article></div>
         <div class="audit-grid">
-          <div class="panel runs"><div class="panel-title"><h2>最近运行</h2><button v-if="isAdmin" class="ghost" @click="runEvaluation">运行评测</button></div><button v-for="run in runs" :key="run.id" class="run-row" @click="inspectRun(run)"><span><strong>{{ run.id }}</strong><small>{{ run.conversation_id }} · {{ run.model_name }}</small></span><span :class="['state', run.state.toLowerCase()]">{{ run.state }}</span><b>{{ run.latency_ms || 0 }} ms</b></button></div>
+          <div class="panel runs"><div class="panel-title"><h2>最近运行</h2></div><button v-for="run in runs" :key="run.id" class="run-row" @click="inspectRun(run)"><span><strong>{{ run.id }}</strong><small>{{ run.conversation_id }} · {{ run.model_name }}</small></span><span :class="['state', run.state.toLowerCase()]">{{ run.state }}</span><b>{{ run.latency_ms || 0 }} ms</b></button></div>
           <div class="panel inspection"><template v-if="selectedRun"><div class="panel-title"><h2>Run 详情</h2><span>{{ selectedRun.run.state }}</span></div><dl><dt>Prompt</dt><dd>{{ selectedRun.run.prompt_version }}</dd><dt>Tokens</dt><dd>输入 {{ selectedRun.run.input_tokens || 0 }} · 输出 {{ selectedRun.run.output_tokens || 0 }}</dd><dt>Outcome</dt><dd><pre>{{ JSON.stringify(selectedRun.run.outcome, null, 2) }}</pre></dd></dl><h3>工具调用</h3><article v-for="call in selectedRun.tool_calls" :key="call.tool_call_id" class="tool-call"><strong>{{ call.tool_name }}</strong><small>{{ call.latency_ms }} ms</small><pre>{{ JSON.stringify(call.arguments, null, 2) }}</pre></article></template><div v-else class="empty large"><strong>选择一次 Run</strong><span>查看最终结果与只读工具调用审计</span></div></div>
         </div>
-        <pre v-if="evaluation" class="panel evaluation">{{ JSON.stringify(evaluation, null, 2) }}</pre>
       </section>
     </main>
   </div>
