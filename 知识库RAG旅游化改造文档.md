@@ -126,7 +126,6 @@ NodeItemNameConfirm
 | `ENABLE_HYDE` | `false` | 是否启用 HyDE 路 |
 | `ENABLE_GRAPH` | `false` | 是否启用 Neo4j 图检索路 |
 | `ENABLE_WEB_SEARCH` | `false` | 8003 是否启用 MCP 网络搜索 |
-| `TRIPLE_EXTRACTOR_MODE` | `off` | 三元组抽取（本期 `off`） |
 
 | 名额 / 超时 | 默认 | 作用 |
 |---|---|---|
@@ -1141,9 +1140,9 @@ uv run python eval/eval.py --limit 50
 
 ## 12. 本期不做
 
-- 不重建 Neo4j 图谱（只冻结词表）
-- 不接入三元组微调模型（`TRIPLE_EXTRACTOR_MODE=off`）
-- 不生成「适合人群 / 最佳游览时间」结构化字段
+- ~~不重建 Neo4j 图谱（只冻结词表）~~ → 已于 2026-10-23 用旅游数据重建（见 §8.2）
+- 不接入三元组微调模型：三元组抽取固定走 LLM 接口，代码中**没有** `TRIPLE_EXTRACTOR_MODE` 开关（原文档记的 `=off` 是规划笔误，已删除）；真要接入时再实现
+- 不把「适合人群 / 最佳游览时间」做成结构化字段（适合人群取自正文；最佳游览时间由四路检索中的网页兜底）
 - 不改 customer-service / ai-service / 三元组项目
 - 不改 8003 的 SSE 事件协议与 `/query` 请求结构
 - 不删除旧集合与旧数据

@@ -54,22 +54,56 @@ class NodeAnswerOutput(NodeBase):
         return {"answer": answer}
 
     def build_citation_block(self, chunks: list) -> str:
-        """按来源文件生成【参考来源】区块，供前端渲染成来源标签。"""
+        """按来源生成【参考来源】区块：本地文档、知识图谱、网络结果分别标注。
+
+        网络结果没有 source_file，必须用标题 + URL 标注，否则网页内容被答案采用
+        却不可追溯；图谱结果标注「知识图谱」，避免与本地文档混淆。
+        """
         lines = []
         seen = set()
         for doc in chunks or []:
             if not isinstance(doc, dict):
                 continue
-            source_file = str(doc.get("source_file") or "").strip()
-            if not source_file or source_file in seen:
-                continue
-            seen.add(source_file)
+
+            source = str(doc.get("source") or "").strip()
             meta = "·".join(
                 str(x).strip()
                 for x in (doc.get("content_type"), doc.get("city"))
                 if str(x or "").strip()
             )
+
+            # 1. 网络结果：标题 + URL
+            if source == "web":
+                title = str(doc.get("title") or "").strip() or "网络结果"
+                url = str(doc.get("url") or "").strip()
+                key = ("web", url or title)
+                if key in seen:
+                    continue
+                seen.add(key)
+                lines.append(f"- 网络：{title}" + (f"（{url}）" if url else ""))
+                continue
+
+            # 2. 图谱结果：标注知识图谱，溯源文件可能为空
+            if source == "graph":
+                label = (
+                    str(doc.get("source_file") or "").strip()
+                    or str(doc.get("head") or "").strip()
+                    or "图谱关系"
+                )
+                key = ("graph", label)
+                if key in seen:
+                    continue
+                seen.add(key)
+                lines.append(f"- 知识图谱：{label}" + (f"（{meta}）" if meta else ""))
+                continue
+
+            # 3. 本地文档：按来源文件去重
+            source_file = str(doc.get("source_file") or "").strip()
+            if not source_file or ("local", source_file) in seen:
+                continue
+            seen.add(("local", source_file))
             lines.append(f"- {source_file}" + (f"（{meta}）" if meta else ""))
+
         if not lines:
             return ""
         return "\n\n【参考来源】\n" + "\n".join(lines)

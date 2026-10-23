@@ -326,7 +326,51 @@ def run_route_cases() -> list[Outcome]:
 
 
 # ============================================================
-# 四、槽位识别（LLM + Mongo）
+# 四、平台规则检索断言
+# ============================================================
+def run_rule_cases() -> list[Outcome]:
+    """平台规则类问题：必须命中 content_type=平台规则，且不受城市过滤影响。"""
+    from atguigu.query_process.nodes.node_search_embedding import NodeSearchEmbedding
+
+    cases = [
+        ("平台规则·退款到账", "退款多久能到账", []),
+        ("平台规则·带城市仍全局检索", "三亚机票多久出票", ["三亚"]),
+        ("平台规则·签证材料", "去日本签证需要什么材料", []),
+        ("平台规则·特价退改", "特价产品可以退吗", []),
+    ]
+
+    outcomes: list[Outcome] = []
+    for name, query, cities in cases:
+        outcome = Outcome(name=name)
+        state = {
+            "original_query": query,
+            "rewritten_query": query,
+            "item_names": cities,
+            "query_content_type": "平台规则",
+            "query_entities": [],
+        }
+        chunks = NodeSearchEmbedding().process(state).get("embedding_chunks") or []
+        outcome.summary = f"{len(chunks)} 条"
+        if not chunks:
+            outcome.fail("检索结果为空")
+            outcomes.append(outcome)
+            continue
+
+        wrong_type = [c.get("content_type") for c in chunks if c.get("content_type") != "平台规则"]
+        if wrong_type:
+            outcome.fail(f"命中非平台规则类型：{sorted(set(wrong_type))[:3]}")
+        with_city = [c.get("city") for c in chunks if str(c.get("city") or "").strip()]
+        if with_city:
+            outcome.fail(f"平台规则结果不应带城市：{sorted(set(with_city))[:3]}")
+        if not any("平台规则" in str(c.get("source_file") or "") for c in chunks):
+            outcome.warn("未命中「平台规则-」前缀文档，检查是否误召回旅游内容")
+        outcomes.append(outcome)
+
+    return outcomes
+
+
+# ============================================================
+# 五、槽位识别（LLM + Mongo）
 # ============================================================
 def run_llm_cases() -> list[Outcome]:
     """验证 §6.1 验收：城市识别、别名归并、识别失败降级。"""
@@ -421,6 +465,7 @@ def main() -> int:
     if args.with_routes:
         logger.info("追加四路检索验证")
         outcomes.extend(run_route_cases())
+        outcomes.extend(run_rule_cases())
 
     if args.with_llm:
         logger.info("追加槽位识别验证（会产生 LLM 调用）")

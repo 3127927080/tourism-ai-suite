@@ -53,7 +53,7 @@ AI Service :8002 ──X-Internal-Service-Token──► 知识库 Knowledge :80
 │   └── web/api/                 # query_service(8003) / import_service(8004) / knowledge_service(8005)
 ├── tools/                       # batch_import / inspect_milvus / smoke_query
 ├── eval/                        # Ragas 评估（qa.csv / result.csv / eval.py）
-├── 旅游数据/                    # 6 目的地 × 6 类 = 36 份 Markdown
+├── 旅游数据/                    # 6 目的地 × 6 类 = 36 份 + 平台规则 5 份 Markdown
 ├── output/                      # 上传文件与解析产物（UPLOAD_ROOT）
 ├── 测试截图/
 ├── .env.example
@@ -115,7 +115,7 @@ NodeRrf → NodeRerank（透传元数据）→ items[]
 |---|---|---|
 | `title` / `file_title` / `content` / `part` | 原有 | 切片标题、文件名词干、正文、序号 |
 | `item_name` | VARCHAR(100) | = `city`，查询过滤键 |
-| `content_type` | VARCHAR(32) | 景点介绍/线路推荐/酒店信息/美食推荐/交通指南/文化民俗 |
+| `content_type` | VARCHAR(32) | 景点介绍/线路推荐/酒店信息/美食推荐/交通指南/文化民俗/**平台规则** |
 | `city` / `cities` | VARCHAR | 主目的地 / 目的地列表（JSON） |
 | `scenic_name` / `route_name` / `hotel_name` / `restaurant_name` | VARCHAR | 文档级名称字段 |
 | `source_file` / `source_path` | VARCHAR | 来源文件名 / 相对路径（**幂等删除键**） |
@@ -200,28 +200,29 @@ uv run python eval/eval.py --limit 50               # Ragas 评估
 | 项 | 状态 |
 |---|---|
 | 入库链路改造 | ✅ 完成：元数据解析、切分、主体识别、Milvus 入库、新集合与标量索引 |
-| 数据规模 | ✅ 36 份文档（6 城市 × 6 内容类型）；`chunks_tourism_v1` 1271 条（已清理 36 条空正文脏 chunk）；`item_name_tourism_v1` 228 行别名 |
+| 数据规模 | ✅ 36 份旅游文档（6 城市 × 6 内容类型）+ 5 份平台规则；`chunks_tourism_v1` **1320 条**、`item_name_tourism_v1` **224 行**别名 |
 | 线路字段 | ✅ 6/6 有 `duration_days`、`budget_ref`、`estimated=true` |
-| 查询链路改造 | ✅ 已用 36 份数据验证：城市 / content_type / 实体过滤、两级回退、全局检索、槽位识别（三亚→三亚、大理→云南、无目的地降级）、RRF+Rerank 元数据透传，共 8 项通过（`tools/smoke_query.py`） |
-| `eval/qa.csv` | ⚠️ 仍是电商 QA，需替换为 50 题旅游 QA 后跑 Ragas |
-| 图谱（Neo4j） | ⏸ 本期只冻结 12 类关系词表，不重建；`ENABLE_GRAPH=false` |
+| 查询链路改造 | ✅ 四路检索（稠密+稀疏 / HyDE / 图谱 / 网络）+ 分层融合；`tools/smoke_query.py --with-rerank --with-routes` 10/10 PASS（含平台规则断言） |
+| `eval/qa.csv` | ✅ 55 题旅游 QA（5 类各 10 + 平台规则 5）；基线见 `eval/REPORT.md` |
+| 图谱（Neo4j） | ✅ 已用旅游数据重建：381 节点 / 629 关系 / 12 类关系词；`ENABLE_GRAPH=true` |
 
 ---
 
 ## 8. 验收口径（本期）
 
-1. 36 份文档全部入库成功，`(city, content_type)` 统计 6×6 无空洞；
-2. 五类问题（景点/线路/酒店/美食/交通）各 2 条人工验证，返回片段带 `content_type/city/source_file`；
-3. `eval/eval.py --limit 50` 跑完，5 项指标写入 `result.csv`；
+1. 36 份旅游文档 + 5 份平台规则全部入库成功，`(city, content_type)` 统计无空洞；
+2. 五类问题（景点/线路/酒店/美食/交通）各 2 条人工验证，返回片段带 `content_type/city/source_file`；平台规则类问题命中 `content_type=平台规则` 且不受城市过滤；
+3. `eval/eval.py` 跑完，5 项指标写入 `result.csv`（当前基线 50 题 + 多路 10/5 题对比）；
 4. 旧集合 `kb_chunks` / `kb_item_names` 未被修改；
 5. 8003 `/query` + SSE、8004 `/upload` 行为不退化；
-6. 8005 无 token 401、有 token 200，新旧请求均可用。
+6. 8005 无 token 401、有 token 200，新旧请求均可用；
+7. 四路检索（向量/HyDE/图谱/网络）各自可用，单路异常只降级该路；图谱关系全部落在 12 类内。
 
 ## 9. 本期不做
 
-- 不重建 Neo4j 图谱（只冻结词表）；
-- 不接入三元组微调模型（`TRIPLE_EXTRACTOR_MODE=off`）；
-- 不抽「适合人群 / 最佳游览时间」结构化字段；
+- ~~不重建 Neo4j 图谱~~ → 已用旅游数据重建（381 节点 / 629 关系 / 12 类）；
+- 不接入三元组微调模型：抽取固定走 LLM 接口，代码中无 `TRIPLE_EXTRACTOR_MODE` 开关（原文档所记为规划笔误）；
+- 不把「适合人群 / 最佳游览时间」做成结构化字段（适合人群取自正文，最佳游览时间由网页兜底）；
 - 不改 8003 的 SSE 事件协议与 `/query` 请求结构。
 
 ## 10. 相关文档
