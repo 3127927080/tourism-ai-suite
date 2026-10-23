@@ -201,9 +201,9 @@ def store_operation(
 def owned_order(db: Session, order_id: str, principal: Principal) -> Order:
     order = db.get(Order, order_id)
     if not order:
-        raise HTTPException(status_code=404, detail="Order not found")
+        raise HTTPException(status_code=404, detail="订单不存在")
     if principal.role == "customer" and order.user_id != principal.user_id:
-        raise HTTPException(status_code=403, detail="Order does not belong to current user")
+        raise HTTPException(status_code=403, detail="该订单不属于当前用户")
     return order
 
 

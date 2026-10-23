@@ -81,10 +81,14 @@ class AgentRunCoordinator:
                 "output_tokens"
             ]
             # b) 归约多轮任务状态（纯函数，非法输入保留原状态）
-            new_task_state = TaskStateReducer().reduce(
+            task_reducer = TaskStateReducer()
+            new_task_state = task_reducer.reduce(
                 request.task_state,
                 validated_result.task_update
             )
+            # 槽位齐全且本轮给出页面动作时，确定性收尾（COMPLETE），避免长期停留 COLLECTING
+            if validated_result.page_action is not None:
+                new_task_state = task_reducer.complete_if_ready(new_task_state)
             # c) 将可信的结果映射到不同AgentRunState中
             agent_run.state, agent_run.result = AgentRunOutPutMapper.map(validated_result)
             # d) 把新任务状态随结果一起交给 Customer Service 持久化

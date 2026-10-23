@@ -149,6 +149,40 @@ def test_history_capped():
     assert len(state["history"]) <= MAX_HISTORY
 
 
+def test_repeat_start_same_type_resumes_without_duplicate():
+    state = _start_refund({"order_id": "ORD_SANYA_001"})
+    state = REDUCER.reduce(
+        state,
+        _update(TaskAction.SWITCH, TaskType.ORDER_QUERY, {"order_id": "ORD_YUNNAN_001"}),
+        NOW,
+    )
+    assert [s["task_type"] for s in state["stack"]] == ["refund_request"]
+    # 模型错误地用 START 重新发起同类型任务 -> 应视为恢复，不得重复入栈
+    state = REDUCER.reduce(
+        state,
+        _update(TaskAction.START, TaskType.REFUND_REQUEST, {"refund_reason": "行程取消"}),
+        NOW,
+    )
+    assert state["active"]["task_type"] == "refund_request"
+    assert [s["task_type"] for s in state["stack"]] == ["order_query"]
+    assert state["history"][-1]["action"] == "RESUME"
+
+
+def test_complete_if_ready_completes_when_all_slots_filled():
+    state = _start_refund(
+        {"order_id": "ORD_SANYA_001", "refund_reason": "行程取消", "refund_type": "全额退款"}
+    )
+    assert state["active"]["missing_slots"] == []
+    completed = REDUCER.complete_if_ready(state)
+    assert completed["active"] is None
+
+
+def test_complete_if_ready_skips_when_missing():
+    state = _start_refund({"order_id": "ORD_SANYA_001"})
+    unchanged = REDUCER.complete_if_ready(state)
+    assert unchanged["active"]["task_type"] == "refund_request"
+
+
 def _run_all():
     tests = [value for name, value in globals().items() if name.startswith("test_") and callable(value)]
     for test in tests:

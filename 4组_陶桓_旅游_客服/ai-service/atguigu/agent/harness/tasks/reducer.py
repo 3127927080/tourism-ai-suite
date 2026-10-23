@@ -77,6 +77,20 @@ class TaskStateReducer:
 
     # ---------------- 各动作处理 ----------------
 
+    def complete_if_ready(
+        self,
+        state: dict[str, Any] | None,
+        now: datetime | None = None,
+    ) -> dict[str, Any] | None:
+        """任务必填槽位已齐全时确定性收尾（COMPLETE），防止长期停留 COLLECTING。"""
+        if not state:
+            return state
+        active = state.get("active")
+        if not active or active.get("missing_slots"):
+            return state
+        now_iso = (now or datetime.now(UTC)).astimezone(UTC).isoformat()
+        return self._complete(copy.deepcopy(state), now_iso)
+
     def _start_or_switch(
         self,
         state: dict[str, Any],
@@ -88,10 +102,47 @@ class TaskStateReducer:
         if task_type is None:
             return state
 
+        # 当前 active 已是同类型：视为补充信息，合并槽位而不是新起任务
+        if (
+            state["active"] is not None
+            and state["active"].get("task_type") == task_type.value
+        ):
+            merged = {
+                **(state["active"].get("slots") or {}),
+                **self._valid_slots(task_type, task_update.slots),
+            }
+            state["active"]["slots"] = merged
+            state["active"]["missing_slots"] = compute_missing(task_type, merged)
+            state["active"]["updated_at"] = now_iso
+            self._append_history(
+                state, now_iso, TaskAction.UPDATE_SLOTS,
+                state["active"].get("task_id"), task_type.value, task_type.value,
+            )
+            return state
+
         previous_type = None
         if state["active"] is not None:
             previous_type = state["active"].get("task_type")
             self._push_suspended(state, now_iso)
+
+        # 栈中已有同类型任务：视为恢复，避免任务栈重复增长
+        for index, item in enumerate(state["stack"]):
+            if item.get("task_type") == task_type.value:
+                suspended = state["stack"].pop(index)
+                resumed = resume_task(suspended, now_iso)
+                merged = {
+                    **(resumed.get("slots") or {}),
+                    **self._valid_slots(task_type, task_update.slots),
+                }
+                resumed["slots"] = merged
+                resumed["missing_slots"] = compute_missing(task_type, merged)
+                resumed["updated_at"] = now_iso
+                state["active"] = resumed
+                self._append_history(
+                    state, now_iso, TaskAction.RESUME, resumed["task_id"],
+                    previous_type, task_type.value,
+                )
+                return state
 
         slots = self._valid_slots(task_type, task_update.slots)
         active = build_active(self._new_task_id(), task_type, slots, now_iso)
