@@ -1,5 +1,5 @@
 export const CUSTOMER_SERVICE_URL = import.meta.env.VITE_CUSTOMER_SERVICE_URL || 'http://127.0.0.1:8000'
-export const ECOMMERCE_SERVICE_URL = import.meta.env.VITE_ECOMMERCE_SERVICE_URL || 'http://127.0.0.1:8001'
+export const TOURISM_SERVICE_URL = import.meta.env.VITE_TOURISM_SERVICE_URL || 'http://127.0.0.1:8001'
 
 async function parseResponse(response) {
   const body = await response.json().catch(() => ({ detail: response.statusText }))
@@ -11,7 +11,7 @@ async function parseResponse(response) {
 }
 
 export async function login(userId) {
-  return parseResponse(await fetch(`${ECOMMERCE_SERVICE_URL}/api/v1/auth/demo-token`, {
+  return parseResponse(await fetch(`${TOURISM_SERVICE_URL}/api/v1/auth/demo-token`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ user_id: userId, role: 'customer' }),
@@ -19,7 +19,7 @@ export async function login(userId) {
 }
 
 export async function listDemoUsers() {
-  return parseResponse(await fetch(`${ECOMMERCE_SERVICE_URL}/api/v1/demo/users`))
+  return parseResponse(await fetch(`${TOURISM_SERVICE_URL}/api/v1/demo/users`))
 }
 
 export async function apiFetch(baseUrl, path, token, options = {}) {
@@ -41,28 +41,44 @@ export const customerApi = {
   }),
 }
 
-export const commerceApi = {
-  orders: (token) => apiFetch(ECOMMERCE_SERVICE_URL, '/api/v1/orders', token),
-  products: (token) => apiFetch(ECOMMERCE_SERVICE_URL, '/api/v1/products', token),
-  order: (token, id) => apiFetch(ECOMMERCE_SERVICE_URL, `/api/v1/orders/${encodeURIComponent(id)}`, token),
-  logistics: (token, id) => apiFetch(ECOMMERCE_SERVICE_URL, `/api/v1/orders/${encodeURIComponent(id)}/logistics`, token),
-  afterSales: (token, orderId = '') => apiFetch(
-    ECOMMERCE_SERVICE_URL,
-    `/api/v1/after-sales${orderId ? `?order_id=${encodeURIComponent(orderId)}` : ''}`,
+export const tourismApi = {
+  products: (token, query = '', type = '') => apiFetch(
+    TOURISM_SERVICE_URL,
+    `/api/v1/products?query=${encodeURIComponent(query)}${type ? `&type=${encodeURIComponent(type)}` : ''}`,
     token,
   ),
-  cancel: (token, id) => apiFetch(ECOMMERCE_SERVICE_URL, `/api/v1/orders/${encodeURIComponent(id)}/cancel`, token, {
+  product: (token, id) => apiFetch(TOURISM_SERVICE_URL, `/api/v1/products/${encodeURIComponent(id)}`, token),
+  availability: (token, id) => apiFetch(TOURISM_SERVICE_URL, `/api/v1/products/${encodeURIComponent(id)}/availability`, token),
+  orders: (token) => apiFetch(TOURISM_SERVICE_URL, '/api/v1/orders', token),
+  order: (token, id) => apiFetch(TOURISM_SERVICE_URL, `/api/v1/orders/${encodeURIComponent(id)}`, token),
+  trip: (token, id) => apiFetch(TOURISM_SERVICE_URL, `/api/v1/orders/${encodeURIComponent(id)}/trip`, token),
+  refunds: (token, orderId = '') => apiFetch(
+    TOURISM_SERVICE_URL,
+    `/api/v1/refunds${orderId ? `?order_id=${encodeURIComponent(orderId)}` : ''}`,
+    token,
+  ),
+  tickets: (token, orderId = '') => apiFetch(
+    TOURISM_SERVICE_URL,
+    `/api/v1/tickets${orderId ? `?order_id=${encodeURIComponent(orderId)}` : ''}`,
+    token,
+  ),
+  cancel: (token, id) => apiFetch(TOURISM_SERVICE_URL, `/api/v1/orders/${encodeURIComponent(id)}/cancel`, token, {
     method: 'POST',
     headers: { 'Idempotency-Key': newId('cancel') },
   }),
-  updateAddress: (token, id, address) => apiFetch(ECOMMERCE_SERVICE_URL, `/api/v1/orders/${encodeURIComponent(id)}/address`, token, {
+  updateTravelers: (token, id, travelerInfo) => apiFetch(TOURISM_SERVICE_URL, `/api/v1/orders/${encodeURIComponent(id)}/travelers`, token, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json', 'Idempotency-Key': newId('address') },
-    body: JSON.stringify({ address }),
+    headers: { 'Content-Type': 'application/json', 'Idempotency-Key': newId('travelers') },
+    body: JSON.stringify({ traveler_info: travelerInfo }),
   }),
-  createAfterSale: (token, id, payload) => apiFetch(ECOMMERCE_SERVICE_URL, `/api/v1/orders/${encodeURIComponent(id)}/after-sales`, token, {
+  createRefund: (token, id, payload) => apiFetch(TOURISM_SERVICE_URL, `/api/v1/orders/${encodeURIComponent(id)}/refunds`, token, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Idempotency-Key': newId('after_sale') },
+    headers: { 'Content-Type': 'application/json', 'Idempotency-Key': newId('refund') },
+    body: JSON.stringify(payload),
+  }),
+  createTicket: (token, id, payload) => apiFetch(TOURISM_SERVICE_URL, `/api/v1/orders/${encodeURIComponent(id)}/tickets`, token, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Idempotency-Key': newId('ticket') },
     body: JSON.stringify(payload),
   }),
 }

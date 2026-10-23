@@ -1,5 +1,5 @@
 export const CUSTOMER_SERVICE_URL = import.meta.env.VITE_CUSTOMER_SERVICE_URL || 'http://127.0.0.1:8000'
-export const ECOMMERCE_SERVICE_URL = import.meta.env.VITE_ECOMMERCE_SERVICE_URL || 'http://127.0.0.1:8001'
+export const TOURISM_SERVICE_URL = import.meta.env.VITE_TOURISM_SERVICE_URL || 'http://127.0.0.1:8001'
 export const AI_SERVICE_URL = import.meta.env.VITE_AI_SERVICE_URL || 'http://127.0.0.1:8002'
 
 async function parseResponse(response) {
@@ -15,7 +15,7 @@ async function parseResponse(response) {
 
 export async function login(userId) {
   const role = userId.startsWith('admin_') ? 'admin' : 'agent'
-  return parseResponse(await fetch(`${ECOMMERCE_SERVICE_URL}/api/v1/auth/demo-token`, {
+  return parseResponse(await fetch(`${TOURISM_SERVICE_URL}/api/v1/auth/demo-token`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ user_id: userId, role }),
@@ -38,7 +38,7 @@ export const adminApi = {
   }),
   resolve: (token, id) => apiFetch(CUSTOMER_SERVICE_URL, `/api/v1/handoffs/${id}/resolve`, token, { method: 'POST' }),
   serviceMetrics: (token) => apiFetch(CUSTOMER_SERVICE_URL, '/api/v1/admin/metrics', token),
-  commerceSummary: (token) => apiFetch(ECOMMERCE_SERVICE_URL, '/api/v1/admin/summary', token),
+  commerceSummary: (token) => apiFetch(TOURISM_SERVICE_URL, '/api/v1/admin/summary', token),
   aiMetrics: (token) => apiFetch(AI_SERVICE_URL, '/api/v1/admin/metrics', token),
   runs: (token) => apiFetch(AI_SERVICE_URL, '/api/v1/runs', token),
   run: (token, id) => apiFetch(AI_SERVICE_URL, `/api/v1/runs/${id}`, token),
