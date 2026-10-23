@@ -62,8 +62,46 @@ class AnswerValidator:
             successful_business_calls
         )
 
-        # 5. 返回通过失败降级和事实校验的原始输出
+        # 5. 为使用知识库条目的回答追加“参考来源”（确定性，避免模型编造引用）
+        output = self._append_knowledge_citations(output, knowledge_calls)
+
+        # 6. 返回通过失败降级和事实校验的原始输出
         return output
+
+    def _append_knowledge_citations(
+            self,
+            output: AgentOutput,
+            knowledge_calls: tuple[ToolCallSnapshot, ...]
+    ) -> AgentOutput:
+        """为 ANSWER 追加来自知识库/知识图谱的参考来源。"""
+        if output.reply_type != ReplyType.ANSWER:
+            return output
+        seen: list[tuple[str, str]] = []
+        lines: list[str] = []
+        for call in knowledge_calls:
+            if call.success is not True:
+                continue
+            for item in (call.result or {}).get("data") or []:
+                if not isinstance(item, dict):
+                    continue
+                title = str(item.get("title") or "").strip()
+                source = str(item.get("source") or "").strip()
+                # 只引用知识库/知识图谱内容，平台内置规则不在此列
+                if not title or ("知识库" not in source and "知识图谱" not in source):
+                    continue
+                key = (title, source)
+                if key in seen:
+                    continue
+                seen.append(key)
+                lines.append(f"- {title}（{source}）")
+                if len(lines) >= 3:
+                    break
+            if len(lines) >= 3:
+                break
+        if not lines:
+            return output
+        citation = "\n\n参考来源：\n" + "\n".join(lines)
+        return output.model_copy(update={"reply_content": output.reply_content + citation})
 
     @staticmethod
     def _get_knowledge_calls(tool_calls: tuple[ToolCallSnapshot, ...]) -> tuple[ToolCallSnapshot, ...]:
