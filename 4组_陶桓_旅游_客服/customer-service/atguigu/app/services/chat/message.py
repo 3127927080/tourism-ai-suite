@@ -6,9 +6,12 @@ from atguigu.app.repositories.message import MessageRepository
 from atguigu.app.schemas.message import ChatMessageRequest
 from atguigu.app.services.chat.conversation import ConversationService
 from atguigu.app.services.chat.turn import TurnService
-from atguigu.app.services.realtime import RealTimeOutBoxService
+from atguigu.app.services.realtime import (
+    RealTimeOutBoxService,
+    build_message_created_data,
+)
 from atguigu.common.utils import get_uid, get_utcnow
-from atguigu.models.models import Message, Conversation
+from atguigu.models.models import Conversation, Message
 
 
 class MessageService:
@@ -91,6 +94,20 @@ class MessageService:
             "conversation_id": conversation.id,
             "mode": conversation.mode
         }
+
+    async def get_user_history(
+            self,
+            user_id: str,
+            after_sequence: int | None = None,
+            limit: int = 500
+    ) -> list[dict[str, Any]]:
+        """返回当前用户全部会话的历史消息（按 sequence 升序，可按游标增量）。"""
+        messages = await self.message_repo.list_user_messages(
+            user_id,
+            after_sequence,
+            limit,
+        )
+        return [build_message_created_data(message) for message in messages]
 
     def save_message(self,
                      conversation: Conversation,
