@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     history_message_limit: int = Field(default=30, ge=1, le=60)
     history_character_budget: int = Field(default=12000, ge=1)
     prompt_version: str = "tourism-support-v1"
-    agent_correction_limit: int = Field(default=2, ge=1)
+    agent_correction_limit: int = Field(default=3, ge=1)
     # 单次 Run 内的工具调用上限与整体超时
     agent_tool_call_limit: int = Field(default=8, ge=1)
     agent_run_timeout_seconds: float = Field(default=90.0, gt=0)

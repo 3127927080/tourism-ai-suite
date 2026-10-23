@@ -116,7 +116,12 @@ class ContextCompiler:
         if message.type == "text":
             return str(message.content['text'])
 
-        return "【用户发送的消息是一个对象】\n" + json.dumps(message.content, ensure_ascii=False)
+        return (
+            "【用户发送了一个业务对象消息】\n"
+            "统一 schema 为 {type, id, fields}：type 表示记录类型（order=订单 / product=旅游产品），"
+            "id 是业务编号，fields 是对象字段。请据此抽取能匹配当前任务槽位的信息。\n"
+            + json.dumps(message.content, ensure_ascii=False)
+        )
 
     def _build_current_message(self, current_messages: list[CurrentMessage]) -> str:
         """
