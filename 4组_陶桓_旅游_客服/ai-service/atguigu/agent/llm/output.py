@@ -110,6 +110,42 @@ class AgentOutput(BaseModel):
         description="本轮对多轮任务状态的动作与槽位更新；没有任务变化时为空"
     )
 
+    @model_validator(mode="before")
+    @classmethod
+    def sanitize_optional_parts(cls, data):
+        """容错：丢弃不合规的可选子结构，避免整轮回复被判结构化失败。"""
+        if not isinstance(data, dict):
+            return data
+        reply_type = data.get("reply_type")
+
+        # 1. 非转人工不得携带工单信息
+        if reply_type != ReplyType.REQUEST_HANDOFF and data.get("handoff_request") is not None:
+            data["handoff_request"] = None
+
+        # 2. 页面动作：仅 ANSWER；BROWSE 不带资源、其他必须带资源，否则丢弃
+        page_action = data.get("page_action_request")
+        if page_action is not None:
+            code = page_action.get("action_code") if isinstance(page_action, dict) else None
+            resource_id = page_action.get("resource_id") if isinstance(page_action, dict) else None
+            invalid = (
+                reply_type != ReplyType.ANSWER
+                or (code == "BROWSE_ORDERS" and resource_id is not None)
+                or (code not in (None, "BROWSE_ORDERS") and resource_id is None)
+            )
+            if invalid:
+                data["page_action_request"] = None
+
+        # 3. 任务动作：START/SWITCH 缺少 task_type 时丢弃该子结构
+        task_update = data.get("task_update")
+        if (
+            isinstance(task_update, dict)
+            and task_update.get("action") in ("START", "SWITCH")
+            and task_update.get("task_type") is None
+        ):
+            data["task_update"] = None
+
+        return data
+
     @model_validator(mode="after")
     def validate_output_fields(self) -> Self:
         """校验回复类型与附加请求之间的组合关系"""

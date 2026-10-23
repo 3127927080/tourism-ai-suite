@@ -45,6 +45,8 @@ class Settings(BaseSettings):
     agent_run_timeout_seconds: float = Field(default=90.0, gt=0)
     # 流式输出时每次下发的文本块字符数
     stream_chunk_size: int = Field(default=3, ge=1)
+    # 结构化输出策略：tool=ToolStrategy（默认，稳定）；provider=ProviderStrategy（原生 json_schema）
+    agent_response_strategy: Literal["tool", "provider"] = "tool"
 
     model_config = SettingsConfigDict(
         env_file=ENV_FILE,
