@@ -34,7 +34,7 @@ class Settings(BaseSettings):
     llm_model: str = ""
     llm_api_key: str = ""
     llm_base_url: str = "https://api.deepseek.com"
-    llm_thinking_mode: Literal["disabled", "enabled"] = "enabled"
+    llm_thinking_mode: Literal["disabled", "enabled"] = "disabled"
     llm_timeout_seconds: float = Field(default=30, gt=0)
     history_message_limit: int = Field(default=30, ge=1, le=60)
     history_character_budget: int = Field(default=12000, ge=1)
