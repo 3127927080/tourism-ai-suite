@@ -5,3 +5,5 @@ kb_policy_003,policy,出境游签证需要准备哪些材料？,签证材料需�
 kb_policy_004,policy,特价酒店能退吗？,不同旅游产品的退改规则不同，以订单页展示的退改政策为准；特价或促销产品可能不支持退改。,ANSWER,,search_knowledge,KNOWLEDGE_POLICY_001,一定可以退|无条件退,订单页,"[{""role"":""user"",""content"":""我刚订了三亚的酒店""},{""role"":""ai"",""content"":""好的，请问有什么可以帮您？""}]",,多轮上下文承接样本
 kb_missing_001,knowledge_missing,行李托运超重怎么收费？,,DECLINE,,search_knowledge,,每公斤收取|超重费为|按重量收费,,,,平台规则未覆盖超重收费
 kb_missing_002,knowledge_missing,景区里有充电宝可以租吗？,,DECLINE,,search_knowledge,,可以租充电宝|有充电宝租借,,,,知识缺失，不得编造
+kb_content_001,knowledge_content,三亚有哪些必去的景点？,三亚核心景点包括亚龙湾、蜈支洲岛、天涯海角和南山文化旅游区。 ,ANSWER,,search_knowledge,,,亚龙湾|蜈支洲,,,知识库景点内容
+kb_content_002,knowledge_content,云南6天线路怎么安排？,推荐昆明进出、大理+丽江的6天线路。,ANSWER,,search_knowledge,,,大理|丽江,,,知识库线路内容
