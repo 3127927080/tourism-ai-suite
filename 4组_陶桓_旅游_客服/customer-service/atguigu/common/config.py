@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     jwt_secret: str = "ecommerce-secret"
     jwt_algorithm: str = "HS256"
     ai_service_url: str = "http://127.0.0.1:8002"
-    ai_timeout_seconds: float = 30
+    ai_timeout_seconds: float = 120
     api_host: str = "0.0.0.0"
     api_port: int = 8000
     conversation_idle_timeout_minutes: int = 30  # 会话空闲超时阈值
