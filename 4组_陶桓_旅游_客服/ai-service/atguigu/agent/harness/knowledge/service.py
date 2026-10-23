@@ -31,7 +31,8 @@ class KnowledgeQueryService:
             )
         except Exception:
             logger.exception("旅游知识查询失败")
-            message = "暂时无法查询旅游知识"
+            # 平台规则仍然可用：不设置误导性的“无法查询”提示，由 Prompt 的相关性规则决定是否作答
+            message = ""
         else:
             message = str(payload.get("message") or "").strip()
             items.extend(self._to_product_items(payload.get("items")))
