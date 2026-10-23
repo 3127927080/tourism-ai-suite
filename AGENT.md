@@ -153,6 +153,6 @@ uv run python eval_triples.py --manifest <gold>.jsonl --responses <r1>.jsonl <r2
 
 | 子项目 | 状态 |
 |---|---|
-| 旅游知识库 | 导入与查询链路改造完成；36 份文档入库（`chunks_tourism_v1` 1271 条）；查询链路 8 项冒烟验证通过；待换 50 题旅游 QA 并跑 Ragas |
+| 旅游知识库 | 导入与查询链路改造完成；36 份文档入库（`chunks_tourism_v1` 1271 条）；**四路检索（向量/HyDE/图谱/网络）已打通**，Neo4j 用旅游数据重建（381 节点/629 关系/12 类）；50 题基线 + 10 题多路对比见 `eval/REPORT.md` |
 | 旅游智能客服 | 代码已复制；`ai-service` 工具仍为电商语义（`search_products` 等）、`tourism-service` 仍为 `ecommerce_service` 包，旅游化未开始 |
 | 三元组微调 | 数据集（train/dev/sft/dpo/eval）与训练评估脚本齐备，已有 SFT/DPO 结果产物 |

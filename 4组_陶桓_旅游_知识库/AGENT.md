@@ -103,16 +103,19 @@ uv run python eval/eval.py --limit 50
 - **`source_path` 才是幂等删除键**：不要按 `file_title` 删，会误删同城其他文档。
 - **插入前字段投影**：MilvusClient 对多余字段敏感，`doc_metadata` 等必须丢弃。
 - **代理劫持**：本机代理可能劫持 MinerU CDN，需 `NO_PROXY` / 强制直连。
-- **`eval/qa.csv` 仍是电商 QA**：替换为旅游 QA 前，Ragas 分数无意义。
+- **`eval/qa.csv` 已是 50 题旅游 QA**（2026-10-22 替换）；旧电商产物在 `eval/archive_ecommerce/`。
+- **图/网结果不带文档元数据**：`node_search_graph` 会按实体反查 Milvus 补 `source_file/city/content_type`，城市级实体走 `item_name` 兜底。
+- **三元组实体必须原文出现**：prompt 已约束，`node_graph_extract` 另有代码兜底（`dropped_hallucination`），改 prompt 时别把这条约束删掉。
 
 ---
 
 ## 8. 当前状态
 
-- ✅ 入库链路全部节点已改造；36 份文档入库，`chunks_tourism_v1` 1271 条（已清理 36 条空正文脏 chunk），`item_name_tourism_v1` 228 行别名。
-- ✅ 查询侧已在真实数据上验证：城市 / content_type / 实体过滤、两级回退、全局检索、槽位识别、RRF+Rerank 元数据透传，共 8 项通过（`tools/smoke_query.py`）。
-- ⚠️ `eval/qa.csv` 待替换为 50 题旅游 QA。
-- ⏸ 图谱链路默认关闭，Neo4j 仍是旧商品图。
+- ✅ 入库链路全部节点已改造；36 份文档入库，`chunks_tourism_v1` 1271 条，`item_name_tourism_v1` 219 行别名。
+- ✅ 查询侧四路已打通：向量（稠密+稀疏）/ HyDE / 图谱 / MCP 网络搜索，`smoke_query.py --with-rerank --with-routes` 10/10 PASS。
+- ✅ 图谱已重建：旧电商图（3049 节点 / 5075 关系 / 721 类）清空，重建后 381 节点 / 629 关系 / 12 类；小样本六项硬指标 6/6 PASS。
+- ✅ Ragas：50 题基线（10-22）+ 10 题多路对比（10-23），见 `eval/REPORT.md` §11。
+- ⚠️ 保持分层融合：图/网不进 RRF，各自截断后在 Rerank 汇合；名额走 `RRF_TOP_N` / `GRAPH_TOP_N` / `WEB_TOP_N`。
 
 ---
 
