@@ -4,9 +4,11 @@
 
 - **旅游知识库（GraphRAG）**：旅游文档入库、多路检索、知识问答
 - **旅游智能客服**：会话中枢 + AI 编排 + 旅游业务数据服务
-- **三元组抽取微调**：用旅游语料微调 QuCo-extractor，并与直调大模型做量化对比
+- **三元组抽取微调**：用旅游语料微调 Qwen3（1.7B/4B），并与直调大模型做量化对比，产物以 8006 服务接入入库链路
 
 工作方式：**源仓库只读，代码复制到本目录下的三个新项目目录后再改造**，绝不直接修改原仓库。
+
+仓库：[Gitee](https://gitee.com/tao-huan333/tourism-ai-suite) · [GitHub](https://github.com/3127927080/tourism-ai-suite)
 
 ---
 
@@ -17,19 +19,24 @@
 ├── 4组_陶桓_旅游_知识库/        # 子项目一：GraphRAG 知识库（8003/8004/8005）
 │   ├── atguigu/                 # 入库图、查询图、工具、FastAPI 接口
 │   ├── eval/                    # Ragas 评估
-│   ├── 旅游数据/                # 6 目的地 × 6 类 = 36 份 Markdown
+│   ├── 旅游数据/                # 6 目的地 × 6 类 + 平台规则 = 41 份 Markdown
 │   ├── tools/                   # 批量导入、集合检查、冒烟查询
 │   └── README.md / AGENT.md
 ├── 4组_陶桓_旅游_客服/          # 子项目二：客服系统
 │   ├── customer-service/        # 会话中枢（8000）
 │   ├── ai-service/              # Agent 编排（8002）
 │   ├── tourism-service/         # 旅游业务数据（8001，fork 自课程电商服务）
-│   └── 需求说明.md
-├── 4组_陶桓_三元组提取微调/      # 子项目三：三元组抽取微调（离线训练）
+│   ├── 前端服务/                # user-frontend 5173 / admin-frontend 5174
+│   └── 需求说明.md / 交付说明.md
+├── 4组_陶桓_三元组提取微调/      # 子项目三：三元组抽取微调 + 8006 推理服务
 │   ├── data/                    # 数据集与评估产物
+│   ├── finetuned/               # LoRA adapter（不入库）
+│   ├── scripts/triple_service.py# 8006 FastAPI 推理服务
 │   ├── QuCo-extractor_*.py      # SFT / DPO / GRPO 训练脚本
 │   ├── convert.py               # 数据格式转换
 │   └── eval_triples.py          # 三元组评估
+├── 联调证据/                    # 跨项目联调脚本与运行证据
+├── 跨项目联调验收.py            # INT-01~04/06 自动化验收
 └── *.md                         # 规划与设计文档（见下方「文档索引」）
 ```
 
@@ -52,6 +59,8 @@ Customer Service :8000 ──NDJSON+Token──► AI Service :8002
                      (chunk 向量)        (实体关系图)        (历史/图片存储)
 
 AI Service ──只读 REST──► Tourism Data Service :8001（酒店/景区/票务/订单/退款）
+
+知识库 Import :8004 ──HTTP──► Triple Extractor :8006（微调模型，入库时抽取三元组）
 ```
 
 ### 服务与端口
@@ -64,7 +73,7 @@ AI Service ──只读 REST──► Tourism Data Service :8001（酒店/景区
 | 知识库 Query | 8003 | 对话式查询 + SSE 流式 |
 | 知识库 Import | 8004 | 文档上传与入库 |
 | 知识库 Knowledge | 8005 | 内部检索接口（只返回片段 + 元数据） |
-| Triple Extractor | 8006 | 三元组抽取推理服务（规划，可选） |
+| Triple Extractor | 8006 | 三元组抽取推理（Qwen3-1.7B + LoRA），供 8004 入库时调用 |
 
 ### 中间件
 
@@ -107,16 +116,20 @@ GraphRAG 文档问答。两条 LangGraph 状态图：
 
 ### 三、三元组抽取微调（`4组_陶桓_三元组提取微调`）
 
-离线训练项目，不是服务：
+**离线训练 + 在线推理服务**：
 
 ```text
-原始数据 → convert.py → train_triple_converted.jsonl
-  → SFT LoRA（QuCo-extractor-0.5B）→ merge
-  → eval_triples.py（exact_match / micro P/R/F1 / format_error）
-  → DPO / GRPO（可选增强）
+旅游 41 份文档 / 1082 chunk
+  → 数据飞轮 + LLM 标注（3 票一致）→ train/dev/sft/dpo/eval
+  → SFT LoRA（1.7B / 4B，r=8、assistant_only_loss）
+  → DPO 偏好对齐（1395 对）
+  → eval_triples.py（exact_match / micro P/R/F1 / format_error_rate）
+  → scripts/triple_service.py（8006，供知识库入库链路调用）
 ```
 
-目标：用 30 份旅游文档构造语料，量化「微调模型 vs 直调大模型」的抽取收益，再决定是否替换知识库的 `node_graph_extract`。
+结论（详见 `实验报告.md`）：4B SFT/DPO 宽松 F1 约 **0.395–0.41**，为 DeepSeek 直调基线的 **65–67%**，但格式错误率低 5 倍、边际成本近零。1.7B → 4B 提升 12.8%。
+
+知识库侧通过 `TRIPLE_EXTRACTOR_MODE=http` 切换到 8006；服务不可用时的 LLM 回退尚未实现。
 
 ---
 
@@ -125,20 +138,30 @@ GraphRAG 文档问答。两条 LangGraph 状态图：
 各子项目均为独立 `uv` 环境，**禁止合并虚拟环境**（transformers 版本冲突）。
 
 ```powershell
-# 知识库
+# 知识库（8003/8004/8005）
 cd 4组_陶桓_旅游_知识库
 uv sync
 Copy-Item .env.example .env   # 填 ALIYUN_API_KEY / MINIO_* / MILVUS_URL / NEO4J_* / BGE_M3_PATH 等
 uv run python -m atguigu.web.api.import_service    # 8004
+uv run python -m atguigu.web.api.knowledge_service # 8005
+uv run python -m atguigu.web.api.query_service     # 8003
+
+# 三元组推理服务（8006，需 GPU；显存不足时 8003/8004 可设 BGE_DEVICE=cpu）
+cd 4组_陶桓_三元组提取微调
+python scripts/triple_service.py --port 8006
 
 # 客服（三个服务各自独立）
 cd 4组_陶桓_旅游_客服\customer-service ; uv sync ; Copy-Item .env.example .env
 cd 4组_陶桓_旅游_客服\ai-service       ; uv sync ; Copy-Item .env.example .env
 cd 4组_陶桓_旅游_客服\tourism-service  ; uv sync ; Copy-Item .env.example .env
+# 启动顺序 8001 → 8002 → 8000(API + AI Worker + Outbox Worker)，详见 交付说明.md
 
-# 三元组（需 GPU）
-cd 4组_陶桓_三元组提取微调
-uv sync
+# 前端
+cd 4组_陶桓_旅游_客服\前端服务\user-frontend  ; npm install ; npm run dev                  # 5173
+cd 4组_陶桓_旅游_客服\前端服务\admin-frontend ; npm install ; npm run dev -- --port 5174    # 5174
+
+# 跨项目联调验收（需 8000/8001/8002/8005/8006 已启动）
+python 跨项目联调验收.py
 ```
 
 ---
@@ -157,12 +180,13 @@ uv sync
 | `任务状态与多轮槽位设计.md` | 多轮任务与槽位 |
 | `三元组项目改造设计.md` | 三元组窗口 |
 | `跨项目验收清单.md` | 需求逐条映射、缺口、验收口径 |
+| `联调报告.md` | 跨项目联调结果、证据、已知问题与复跑方式 |
 
 ---
 
 ## 开发规范
 
-- **Git**：所有改动在 `dev` 分支进行并推送到 `origin/dev`；`main` 仅管理员可推送，合并走 PR。
+- **Git**：所有改动在 `dev` 分支进行并推送到 `origin/dev`（Gitee）；GitHub 镜像用 `git push github dev`；`main` 仅管理员可推送，合并走 PR。
 - **分层**：`routers → services/编排 → repositories → models/infrastructure`，禁止反向依赖。
 - **事务**：仓储只 `flush`/`add`，服务层统一 `commit`。
 - **依赖注入**：只走 `dependencies.py`。
@@ -173,6 +197,9 @@ uv sync
 
 | 子项目 | 状态 |
 |---|---|
-| 旅游知识库 | 导入链路改造完成；36 份文档入库（1271 chunk）；查询链路 8 项冒烟验证通过；待换 50 题旅游 QA 并跑 Ragas |
-| 旅游智能客服 | 代码已复制到位；工具/Skill/Prompt 旅游化、tourism-service fork 进行中 |
-| 三元组微调 | 数据集与训练/评估脚本已就位，含 SFT/DPO 结果产物 |
+| 旅游知识库 | **已完成**。41 份文档入库（1320 切片）；四路检索（向量/HyDE/图谱/网络）打通，图谱 381 节点/629 关系/12 类；50 题 Ragas faithfulness 0.79，10 题多路复跑 0.89 |
+| 旅游智能客服 | **已完成**。三服务 + 双前端；TaskState 多轮槽位、token 级流式、退款/工单受控写接口；INT-02/03/04/06 端到端验证；规则评测 22 例通过 18（81.8%） |
+| 三元组微调 | **已完成**。数据构建 / SFT / DPO / 评估 + 8006 推理服务；4B 宽松 F1 0.395–0.41（DeepSeek 基线 65–67%） |
+| 跨项目联调 | **INT-01~06 全部通过**（2026-10-24），见 [联调报告.md](联调报告.md) |
+
+已知限制与未覆盖项见 [联调报告](联调报告.md) 第五、六节。
