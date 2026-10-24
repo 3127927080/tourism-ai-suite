@@ -5,7 +5,13 @@ import os
 from dotenv import load_dotenv
 
 env_path=os.path.join(os.path.dirname(__file__),"..","..",".env")
+# BGE 设备/精度允许启动时用环境变量按服务覆盖：
+# 显存不足时可让查询/导入服务走 CPU，已加载 GPU 的检索服务不受影响
+_DEVICE_OVERRIDES={
+    key: os.environ[key] for key in ("BGE_DEVICE", "BGE_FP16") if key in os.environ
+}
 load_dotenv(dotenv_path=env_path,override= True)
+os.environ.update(_DEVICE_OVERRIDES)
 
 class MineruConfig:
     mineru_token=os.getenv("MINERU_TOKEN")
