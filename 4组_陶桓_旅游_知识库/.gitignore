@@ -7,3 +7,10 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
+
+# 入库运行时产物（上传文件、chunks.json、解压结果）
+output/
+*.zip
+
+# 本地截图
+测试截图/

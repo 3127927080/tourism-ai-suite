@@ -18,3 +18,5 @@ class AgentRunRequest(BaseModel):
     turn_id: str
     messages: list[CurrentMessage] = Field(min_length=1)
     history: list[HistoryMessage] = Field(default_factory=list)
+    # 多轮任务状态（不透明 JSON）：由 Customer Service 传入当前会话的任务状态
+    task_state: dict[str, Any] | None = None

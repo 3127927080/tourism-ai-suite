@@ -113,13 +113,17 @@ class TurnService:
         history_messages = list(
             reversed(await self.message_repo.find_history_message_by_sequence(claimed_turn.conversation_id,current_messages[0].id)))
 
-        # 3. 构建字典，作为最终上下文，返回
+        # 3. 读取当前会话的任务状态（不透明 JSON），随请求带给 AI Service
+        conversation = await self.conver_repo.get_conversation(claimed_turn.conversation_id)
+
+        # 4. 构建字典，作为最终上下文，返回
         return {
             "conversation_id": claimed_turn.conversation_id,
             "user_id": claimed_turn.user_id,
             "turn_id": claimed_turn.id,
             "request_id": f"{claimed_turn.id}:attempt:{claimed_turn.attempts}",
             "input_revision": snapshot_revision,
+            "task_state": conversation.task_state if conversation else None,
             "messages": [
                 {
                     "message_id": message.message_id,

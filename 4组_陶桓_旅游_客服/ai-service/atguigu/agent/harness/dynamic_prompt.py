@@ -12,7 +12,7 @@ def render_skill_prompt(active_skill_code: SkillCode | None) -> str:
     if active_skill_code is None:
         return (
             "【动态 Skill 路由】\n"
-            "用户询问商品、商品用法、订单、物流、售后记录或平台规则时，先调用 load_skill 加载对应领域；普通寒暄可以直接回答。\n"
+            "用户询问旅游产品、退改政策、订单、出行信息、退款记录或平台规则时，先调用 load_skill 加载对应领域；普通寒暄可以直接回答。\n"
             "用户同时询问多个领域时，一次只处理一个 Skill；完成当前领域所需查询后，再切换到下一个 Skill。\n"
             f"可用 Skill：\n{SKILL_CATALOG.render_index()}"
         )

@@ -12,10 +12,18 @@ class ConversationMode(StrEnum):
     CLOSED = "CLOSED"  # 用户端显示“已结束”
 
 
+class CurrentTaskResponse(BaseModel):
+    task_type: str
+    status: str
+    slots: dict[str, Any] = {}
+    missing_slots: list[str] = []
+
+
 class CurrentConversationResponse(BaseModel):
     id: str
     mode: ConversationMode
     is_processing: bool
+    current_task: CurrentTaskResponse | None = None
 
 
 class ConversationMessageResponse(BaseModel):

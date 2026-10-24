@@ -4,13 +4,14 @@ from enum import StrEnum
 from langchain_core.tools import BaseTool
 
 from atguigu.agent.harness.tools.read import (
-    get_logistics,
     get_order,
-    get_product,
-    get_product_stock,
-    list_after_sales,
+    get_product_availability,
+    get_travel_product,
+    get_trip_info,
     list_orders,
-    search_products, search_knowledge
+    list_refunds,
+    search_knowledge,
+    search_travel_products,
 )
 from atguigu.agent.harness.tools.skill import load_skill
 
@@ -59,13 +60,13 @@ class ToolCatalog:
 
 TOOL_CATALOG = ToolCatalog(
     (
-        ToolDefinition(search_products, ToolCategory.BUSINESS),
-        ToolDefinition(get_product, ToolCategory.BUSINESS),
-        ToolDefinition(get_product_stock, ToolCategory.BUSINESS),
+        ToolDefinition(search_travel_products, ToolCategory.BUSINESS),
+        ToolDefinition(get_travel_product, ToolCategory.BUSINESS),
+        ToolDefinition(get_product_availability, ToolCategory.BUSINESS),
         ToolDefinition(list_orders, ToolCategory.BUSINESS),
         ToolDefinition(get_order, ToolCategory.BUSINESS),
-        ToolDefinition(get_logistics, ToolCategory.BUSINESS),
-        ToolDefinition(list_after_sales, ToolCategory.BUSINESS),
+        ToolDefinition(get_trip_info, ToolCategory.BUSINESS),
+        ToolDefinition(list_refunds, ToolCategory.BUSINESS),
         ToolDefinition(search_knowledge, ToolCategory.KNOWLEDGE),
         ToolDefinition(load_skill, ToolCategory.GUIDANCE)
     )

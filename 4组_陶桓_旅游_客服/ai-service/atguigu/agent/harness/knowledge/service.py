@@ -14,7 +14,7 @@ class KnowledgeQueryService:
         self.knowledge_client = KnowledgeClient()
 
     async def search(self, query: str) -> KnowledgeSearchResult:
-        """返回平台规则，并追加商品知识库检索结果。"""
+        """返回平台规则，并追加旅游知识库检索结果。"""
         # 1. 空查询不返回知识内容
         if not query.strip():
             return KnowledgeSearchResult(items=[])
@@ -23,15 +23,16 @@ class KnowledgeQueryService:
         items = self._platform_rules()
         message = ""
 
-        # 3. 商品知识查询失败时保留平台规则，并把失败提示交给调用方转述
+        # 3. 旅游知识查询失败时保留平台规则，并把失败提示交给调用方转述
         try:
             payload = await self.knowledge_client.search(
                 query.strip(),
                 get_settings().knowledge_top_k
             )
         except Exception:
-            logger.exception("商品知识查询失败")
-            message = "暂时无法查询商品说明"
+            logger.exception("旅游知识查询失败")
+            # 平台规则仍然可用：不设置误导性的“无法查询”提示，由 Prompt 的相关性规则决定是否作答
+            message = ""
         else:
             message = str(payload.get("message") or "").strip()
             items.extend(self._to_product_items(payload.get("items")))
@@ -40,25 +41,25 @@ class KnowledgeQueryService:
 
     @staticmethod
     def _platform_rules() -> list[KnowledgeItem]:
-        """返回原有平台规则。"""
+        """返回旅游平台规则。"""
         return [
             KnowledgeItem(
-                knowledge_id="KNOWLEDGE_AFTER_SALE_001",
-                title="七天无理由退货规则",
-                content="符合平台七天无理由退货范围的商品，可以在签收后七天内申请退货。商品应保持完好",
-                source="平台退货规则"
+                knowledge_id="KNOWLEDGE_POLICY_001",
+                title="退改政策",
+                content="不同旅游产品的退改规则不同，以订单页展示的退改政策为准；特价或促销产品可能不支持退改。",
+                source="平台退改规则"
             ),
             KnowledgeItem(
-                knowledge_id="KNOWLEDGE_AFTER_SALE_002",
-                title="退款到账规则",
-                content="退款申请审核通过后，款项将原路退回支付账户。到账时间受支付机构处理进度影响",
-                source="平台退款规则"
+                knowledge_id="KNOWLEDGE_POLICY_002",
+                title="签证材料",
+                content="出境行程的签证材料需按目的地使领馆的要求准备，平台仅提供签证代办服务说明，不保证签证结果。",
+                source="平台签证规则"
             ),
             KnowledgeItem(
-                knowledge_id="KNOWLEDGE_AFTER_SALE_003",
-                title="退货商品寄回规则",
-                content="退货申请审核通过后，请在售后页面规定的时间内寄回商品。退货商品应保持完好，逾期未寄回的申请可能自动关闭。",
-                source="平台退货规则"
+                knowledge_id="KNOWLEDGE_POLICY_003",
+                title="出票时效",
+                content="机票/火车票的出票时间受航空公司或铁路系统影响，通常在订单支付后 2 小时内完成，请以订单状态为准。",
+                source="平台出票规则"
             )
         ]
 
@@ -74,7 +75,8 @@ class KnowledgeQueryService:
                 continue
             knowledge_id = str(raw.get("knowledge_id") or "").strip()
             title = str(raw.get("title") or "").strip() or "无标题"
-            content = str(raw.get("content") or "").strip()
+            # 单条正文截断到 1000 字，避免上下文膨胀
+            content = str(raw.get("content") or "").strip()[:1000]
             source = str(raw.get("source") or "").strip() or "知识库文档"
             if not knowledge_id or not content:
                 continue

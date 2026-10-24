@@ -43,8 +43,25 @@ class ImportGraphState(TypedDict):
     #   - sparse_vector: Dict[int, float] (稀疏向量，由向量化节点添加)
     chunks: List[Dict[str, Any]]
 
-    # 主体名称（识别出的产品/设备名称，如 "HAK180"）
+    # 主体名称（旅游版为目的地城市，如 "三亚"）
     item_name: str
+
+    # ============================================================
+    # 4.1 旅游元数据（node_metadata_parse 产出）
+    # ============================================================
+    # 统一元数据字典，字段：
+    #   content_type: str          景点介绍/线路推荐/酒店信息/美食推荐/交通指南/文化民俗
+    #   city: str                  主目的地
+    #   cities: List[str]          目的地列表（云南多城市会展开）
+    #   scenic_name / route_name / hotel_name / restaurant_name: str  文档级名称
+    #   source_file / source_path: str   来源文件与相对路径（幂等删除键）
+    #   theme: str                 主题
+    #   entities: List[Dict]       [{"name": "亚龙湾", "type": "景点"}]
+    #   duration_days: int         线路天数，非线路类为 0
+    #   budget_ref: str            预算估算文本，非线路类为空
+    #   estimated: bool            预算是否为估算值
+    #   warnings: List[str]        解析告警
+    doc_metadata: Dict[str, Any]
 
     # ============================================================
     # 5. 图片处理（node_md_img）
@@ -62,7 +79,7 @@ class ImportGraphState(TypedDict):
     # 6. 图数据库（Neo4j）相关
     # ============================================================
     # 三元组列表，格式：[["头实体", "关系", "尾实体"], ...]
-    # 例如：[["HAK180", "包含", "主轴电机"], ["主轴电机", "需要", "定期维护"]]
+    # 例如：[["亚龙湾", "位于", "三亚"], ["玉龙雪山", "需要", "提前预约"]]
     triples: List[List[str]]
 
     # 图入库统计信息（可选）

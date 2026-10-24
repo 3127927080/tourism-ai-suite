@@ -9,6 +9,19 @@ from atguigu.tool.json_format_tool import json_format
 from atguigu.tool.logger import logger
 
 
+def mineru_session():
+    """访问 MinerU 时禁用系统代理。
+
+    本机若开了 127.0.0.1:7890 这类代理，requests 会自动沿用，
+    而 MinerU 的 CDN 走代理会 TLS 中断（SSL: UNEXPECTED_EOF_WHILE_READING）。
+    """
+    import requests
+
+    session = requests.Session()
+    session.trust_env = False
+    return session
+
+
 class NodePDFToMD(NodeBase):
     """
     PDF 转 Markdown 节点：PDF结构化解析
@@ -52,9 +65,8 @@ class NodePDFToMD(NodeBase):
         上传pdf文件到mineru
         :return:
         """
-        import requests
-
         token = MineruConfig.mineru_token
+        session = mineru_session()
         url = "https://mineru.net/api/v4/file-urls/batch"
         header = {
             "Content-Type": "application/json",
@@ -71,7 +83,7 @@ class NodePDFToMD(NodeBase):
         # 1、考虑请求是否成功
         # 2、考虑请求数据是否成功
         # 3、考虑请求数据是否符合预期
-        response = requests.post(url, headers=header, json=data)
+        response = session.post(url, headers=header, json=data, timeout=60)
         if response.status_code != 200:
             logger.error("上传PDF文件请求失败")
             raise Exception(f"上传PDF文件请求失败：{pdf_path}")
@@ -88,7 +100,7 @@ class NodePDFToMD(NodeBase):
 
         for i in range(0, len(urls)):
             with open(file_path[i], 'rb') as f:
-                res_upload = requests.put(urls[i], data=f)
+                res_upload = session.put(urls[i], data=f, timeout=300)
                 if res_upload.status_code == 200:
                     logger.info(f"{urls[i]}上传成功")
                 else:
@@ -97,10 +109,9 @@ class NodePDFToMD(NodeBase):
         return batch_id
 
     def get_md_zip_url(self,batch_id):
-        import requests
-
         token = MineruConfig.mineru_token
         batch_id = batch_id
+        session = mineru_session()
         url = f"https://mineru.net/api/v4/extract-results/batch/{batch_id}"
         header = {
             "Content-Type": "application/json",
@@ -112,7 +123,7 @@ class NodePDFToMD(NodeBase):
         while True:
             start_time = time.time()
             try:
-                res = requests.get(url, headers=header)
+                res = session.get(url, headers=header, timeout=30)
                 if res.status_code != 200:
                     logger.error("获取PDF文件处理结果请求失败")
                     raise Exception(f"获取PDF文件处理结果请求失败")
@@ -134,6 +145,8 @@ class NodePDFToMD(NodeBase):
                 use_time += end_time - start_time
                 if use_time > total_time:
                     raise Exception(f"PDF文件处理超时,请稍后再试")
+                # 轮询间隔，避免高频请求把日志刷爆
+                time.sleep(2)
                 continue
 
     def download_zip_handler(self,zip_url,local_dir_obj,pdf_path_obj):
@@ -141,15 +154,24 @@ class NodePDFToMD(NodeBase):
         下载zip文件,将文件做处理,处理成特点的情况
         :return:
         """
-        import requests
-
-        md_zip_res = requests.get(zip_url)
-        if md_zip_res.status_code != 200:
+        session = mineru_session()
+        md_zip_content = None
+        last_error = None
+        # CDN 偶发 TLS 中断，重试三次
+        for attempt in range(1, 4):
+            try:
+                md_zip_res = session.get(zip_url, timeout=300)
+                if md_zip_res.status_code != 200:
+                    raise Exception(f"HTTP {md_zip_res.status_code}")
+                md_zip_content = md_zip_res.content
+                break
+            except Exception as exc:  # noqa: BLE001
+                last_error = exc
+                logger.warning(f"下载结果包失败（第 {attempt} 次）：{type(exc).__name__}: {exc}")
+                time.sleep(3)
+        if md_zip_content is None:
             logger.error("下载PDF文件处理结果请求失败")
-            raise Exception(f"下载PDF文件处理结果请求失败")
-
-        # 这里也是在发请求，但是我们所说三层考虑判断只需要做一层，因为这次数据内容是直接放在请求回来的响应对象上的
-        md_zip_content = md_zip_res.content
+            raise Exception(f"下载PDF文件处理结果请求失败：{last_error}")
         #         我们获取到的是zip的内容，并不是直接变成zip文件，我们需要通过文件流操作把这个内容写入磁盘文件
         #         print(md_zip_content)
 
@@ -218,7 +240,7 @@ class NodePDFToMD(NodeBase):
 if __name__ == "__main__":
     node = NodePDFToMD()
     state = {
-        "pdf_path":r"D:\output\doc\hak180产品安全手册.pdf",
+        "pdf_path":r"C:\Users\th\Desktop\4组_陶桓_实战\4组_陶桓_旅游_知识库\output\20261021\hak180产品安全手册.pdf",
         "local_dir":r"D:\output\doc\parse"
     }
     res = node(state)

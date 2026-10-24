@@ -1,7 +1,7 @@
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from atguigu.models.models import Message, Conversation
+from atguigu.models.models import Conversation, Message
 
 
 class MessageRepository:
@@ -31,6 +31,24 @@ class MessageRepository:
 
     def add_message(self, message:Message):
         self.session.add(message)
+
+    async def list_user_messages(
+            self,
+            user_id: str,
+            after_sequence: int | None,
+            limit: int
+    ) -> list[Message]:
+        """按用户返回其全部会话的消息（可按游标增量），按 sequence 升序。"""
+        statement = (
+            select(Message)
+            .join(Conversation, Message.conversation_id == Conversation.id)
+            .where(Conversation.user_id == user_id)
+        )
+        if after_sequence is not None:
+            statement = statement.where(Message.id > after_sequence)
+        statement = statement.order_by(Message.id.asc()).limit(limit)
+        results = await self.session.scalars(statement)
+        return list(results.all())
 
     async def find_current_messages_by_turn_range(self,
                                                   conversation_id: str,

@@ -17,14 +17,18 @@ class FactCategory(StrEnum):
 
 
 STATUS_CODE_MAP = {
+    "待支付": "pending_payment",
     "已支付": "paid",
-    "待发货": "pending_shipment",
-    "已发货": "shipped",
+    "待出行": "upcoming",
+    "出行中": "in_progress",
     "已完成": "completed",
     "已取消": "cancelled",
+    "退款中": "refunding",
     "已退款": "refunded",
-    "运输中": "in_transit",
-    "已签收": "delivered",
+    "已出票": "ticketed",
+    "已退票": "ticket_refunded",
+    "已入住": "checked_in",
+    "已离店": "checked_out",
     "待处理": "pending",
     "已通过": "approved",
     "处理中": "processing",
@@ -43,14 +47,14 @@ class BusinessFact:
 class FactExtractor:
     """从 Agent 回复中提取需要匹配的业务事实"""
 
-    # 匹配以ORDER、PRODUCT 或 AS 的业务资源编号（如订单号、商品号、售后单号）
+    # 匹配以订单、产品、景区、票务、接送、退款、出行、工单编号为前缀的业务资源编号
     resource_id_pattern = re.compile(
-        r"\b(?:ORDER|PRODUCT|AS)[_-][A-Z0-9_-]+\b",
+        r"\b(?:ORDER|ORD|PRODUCT|HOTEL|SCENIC|TICKET|TRANSFER|REFUND|TRIP|TK)[_-][A-Z0-9_-]+\b",
         re.IGNORECASE
     )
-    # 匹配金额、总价、价格、库存、数量 的数值
+    # 匹配金额、总价、价格、票价、库存、余票、余量、房态、数量 的数值
     labeled_number_pattern = re.compile(
-        r"(?:金额|总价|价格|库存|数量)"
+        r"(?:金额|总价|价格|票价|库存|余票|余量|房态|数量)"
         r"(?:为|是|有|剩余|还剩|：|:)?\s*"
         r"[¥￥]?\s*(\d+(?:\.\d+)?)"
     )
@@ -68,7 +72,7 @@ class FactExtractor:
         # 1. 创建按业务事实值去重的有序集合
         facts: dict[BusinessFact, None] = {}
 
-        # 2. 提取并规范订单、商品和售后编号
+        # 2. 提取并规范订单、产品、退款和出行编号
         for resource_id in cls.resource_id_pattern.findall(reply_content):
             normalized_id = resource_id.upper().replace("-", "_")
             facts[BusinessFact(FactCategory.IDENTIFIER,normalized_id)] = None
@@ -77,7 +81,7 @@ class FactExtractor:
         for number in cls.labeled_number_pattern.findall(reply_content):
             facts[BusinessFact(FactCategory.NUMBER,number)] = None
 
-        # 4. 提取带货币或商品数量单位的数字
+        # 4. 提取带货币或数量单位的数字
         for first_number, second_number in (cls.unit_number_pattern.findall(reply_content)):
             number = first_number or second_number
             facts[BusinessFact(FactCategory.NUMBER,number)] = None

@@ -1,0 +1,10 @@
+{
+  "model": "dpo_4b_v2",
+  "samples": 100,
+  "none_rate": 0.34,
+  "keep_rate": 0.66,
+  "avg_triples_per_sentence": 2.93,
+  "illegal_relation_count": 251,
+  "not_grounded_count": 41,
+  "responses": "/root/autodl-tmp/tourism_triple/data/generalization/responses_dpo_4b_v2.jsonl"
+}

@@ -1,0 +1,17 @@
+{
+  "conversation_id": "conv_f7760b99476947bf87264de01ce2ceab",
+  "mode": "AI",
+  "current_task": {
+    "task_type": "complaint_ticket",
+    "status": "COLLECTING",
+    "slots": {
+      "order_id": "ORD_SANYA_001",
+      "ticket_type": "投诉",
+      "issue_description": "投诉酒店服务"
+    },
+    "missing_slots": []
+  },
+  "message_count": 24,
+  "last_sequence": 24,
+  "last_message_id": "msg_99bfbca7efa84bffa086a0fe503678dc"
+}

@@ -2,8 +2,8 @@ import asyncio
 
 from langchain.agents import create_agent
 from langchain.agents.middleware import ToolCallLimitMiddleware
+from langchain.agents.structured_output import ProviderStrategy, ToolStrategy
 from langchain_core.messages import HumanMessage, SystemMessage
-from langchain.agents.structured_output import ToolStrategy
 
 from atguigu.agent.harness.dynamic_prompt import support_prompt
 from atguigu.agent.harness.run.runtime import (
@@ -14,7 +14,7 @@ from atguigu.agent.harness.skills.middleware import SkillScopeMiddleware
 from atguigu.agent.harness.tools.catalog import TOOL_CATALOG
 from atguigu.agent.llm.adapter import ModelAdapter
 from atguigu.agent.llm.output import AgentOutput
-
+from atguigu.common.config import get_settings
 
 #
 # class User(BaseModel):
@@ -32,21 +32,28 @@ def create_support_agent():
     harness:只创建一次：不同的请求
     response_format=自定义结构化对象，llm就会根据该结构化对象的数据结构和类型返回json格式字符串返回，pydantic校验以及转换得到数据模型
     """
+    settings = get_settings()
+    # 结构化输出策略可由配置切换：tool（默认）/ provider（原生 json_schema）
+    response_format = (
+        ProviderStrategy(AgentOutput)
+        if settings.agent_response_strategy == "provider"
+        else ToolStrategy(AgentOutput)
+    )
     return create_agent(  # type:ignore
         model=ModelAdapter.create_model(),
         tools=TOOL_CATALOG.get_agent_tools(),
-        response_format=ToolStrategy(AgentOutput),
+        response_format=response_format,
         state_schema=AgentExecutionState,
         context_schema=AgentRuntimeContext,
         middleware=[
             support_prompt,
             SkillScopeMiddleware(),
             ToolCallLimitMiddleware(
-                run_limit=8,
+                run_limit=settings.agent_tool_call_limit,
                 exit_behavior="error"
             )
         ],
-        name="智能客服专家"
+        name="旅游智能客服专家"
     )
 
 

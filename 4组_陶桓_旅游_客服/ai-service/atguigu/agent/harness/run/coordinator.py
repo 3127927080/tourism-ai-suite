@@ -10,14 +10,16 @@ from atguigu.agent.harness.errors import (
     AgentRunStateError,
     TerminalErrorCode,
 )
+from atguigu.agent.harness.run.events import build_response_event
+from atguigu.agent.harness.run.executor import AgentExecutor
+from atguigu.agent.harness.run.output import AgentRunOutPutMapper
 from atguigu.agent.harness.run.runtime import AgentRuntimeContext
+from atguigu.agent.harness.tasks.reducer import TaskStateReducer
+from atguigu.agent.llm.output import ReplyType
 from atguigu.app.repositories.run import AgentRunRepository
 from atguigu.app.schemas.run import AgentRunRequest
 from atguigu.common.config import get_settings
 from atguigu.common.utils import get_utcnow
-from atguigu.agent.harness.run.events import build_response_event
-from atguigu.agent.harness.run.executor import AgentExecutor
-from atguigu.agent.harness.run.output import AgentRunOutPutMapper
 from atguigu.models.models import AgentRun, AgentRunState
 
 logger = logging.getLogger(__name__)
@@ -79,8 +81,22 @@ class AgentRunCoordinator:
             agent_run.output_tokens = validated_result.token_usage[
                 "output_tokens"
             ]
-            # b) 将可信的结果映射到不同AgentRunState中
+            # b) 归约多轮任务状态（纯函数，非法输入保留原状态）
+            task_reducer = TaskStateReducer()
+            new_task_state = task_reducer.reduce(
+                request.task_state,
+                validated_result.task_update
+            )
+            # 槽位齐全且本轮已给出结果（ANSWER）或页面动作时，确定性收尾（COMPLETE）
+            if (
+                validated_result.page_action is not None
+                or validated_result.reply_type == ReplyType.ANSWER
+            ):
+                new_task_state = task_reducer.complete_if_ready(new_task_state)
+            # c) 将可信的结果映射到不同AgentRunState中
             agent_run.state, agent_run.result = AgentRunOutPutMapper.map(validated_result)
+            # d) 把新任务状态随结果一起交给 Customer Service 持久化
+            agent_run.result["task_state"] = new_task_state
         except Exception as exc:
             # c. 区分具有稳定错误码的执行失败和边界之外的未知失败
             if isinstance(exc, AgentExecutionError):

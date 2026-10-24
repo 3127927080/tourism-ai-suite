@@ -2,16 +2,19 @@
 写的是文件导入部分的接口
 """
 
+import re
 import shutil
 import uuid
+from email.header import decode_header, make_header
 from pathlib import Path
 from datetime import datetime
+from urllib.parse import unquote
 
 import fastapi
 from fastapi import FastAPI, BackgroundTasks, UploadFile, File
 from starlette.middleware.cors import CORSMiddleware
 
-from atguigu.config.config import MinIoConfig
+from atguigu.config.config import ImportConfig, MinIoConfig
 from atguigu.import_process.import_main_graph import MainGraphRunner
 from atguigu.tool.logger import logger
 from atguigu.tool.minio_client_tool import  get_minio_client
@@ -33,6 +36,30 @@ app.add_middleware(
     allow_methods=["*"],  # 允许的请求方法
     allow_headers=["*"],  # 允许的请求头
 )
+def normalize_upload_filename(raw: str) -> str:
+    """把上传文件名规范成可落盘的安全文件名。
+
+    兼容三种来源：浏览器原样 UTF-8、RFC2047 编码（`=?utf-8?B?...?=`）、URL 百分号编码；
+    同时剥离目录部分，避免 `../` 之类路径穿越，并替换 Windows 非法字符。
+    """
+    name = str(raw or "").strip()
+    if not name:
+        return "upload.md"
+    if "=?" in name:
+        try:
+            name = str(make_header(decode_header(name)))
+        except Exception:  # noqa: BLE001
+            pass
+    if re.search(r"%[0-9A-Fa-f]{2}", name):
+        try:
+            name = unquote(name)
+        except Exception:  # noqa: BLE001
+            pass
+    name = name.replace("\\", "/").split("/")[-1]
+    name = re.sub(r'[<>:"|?*\x00-\x1f]', "_", name).strip(" .")
+    return name or "upload.md"
+
+
 @app.post("/upload")
 async def upload_file(background_tasks: BackgroundTasks,file: UploadFile = File(...)):
     """
@@ -48,15 +75,16 @@ async def upload_file(background_tasks: BackgroundTasks,file: UploadFile = File(
     add_running_task(task_id, "upload_file")
 
     #2. 将文件保存到服务器临时目录。
-    #2.1定义文件要存放的位置
-    local_dir = rf"D:\output\{datetime.now().strftime('%Y%m%d')}"
+    #2.1定义文件要存放的位置（由 UPLOAD_ROOT 配置，不再硬编码 D:\output）
+    local_dir = str(Path(ImportConfig.upload_root) / datetime.now().strftime('%Y%m%d'))
     #2.2将文件转为path对象,方便操作
     local_dir_obj = Path(local_dir)
     #2.3判断文件是否存在,不存在则创建
     if not local_dir_obj.exists():
         local_dir_obj.mkdir(parents=True,exist_ok=True)
-    #2.4存在则先拼接文件路径
-    local_file_path = str(local_dir_obj / file.filename)
+    #2.4存在则先拼接文件路径（文件名先规范化，兼容中文与编码过的文件名）
+    safe_name = normalize_upload_filename(file.filename)
+    local_file_path = str(local_dir_obj / safe_name)
 
     #为了让前端的显示实时的进度,维护了三个状态字典,正在进行的节点字典,完成的节点字典,耗时的字典
 
@@ -67,17 +95,23 @@ async def upload_file(background_tasks: BackgroundTasks,file: UploadFile = File(
     logger.info(f"文件保存本地成功,地址是:{local_file_path}")
 
     #3. 上传文件到 MinIO 对象存储。
-    #3.1获取minio的客户端
-    minio_client = get_minio_client()
-    #3.2调用minio客户端的添加文件方法
-    #对储存结构的优化,在uuid的前9位后面加上要保存的文件的文件名,增加辨识度
-    file_path = task_id[:13]+Path(local_file_path).name
-    minio_client.fput_object(
-        bucket_name=MinIoConfig.minio_bucket_name,
-        object_name=f"pdf_file/{datetime.now().strftime('%Y%m%d')}/{file_path}/{file.filename}",
-        file_path=local_file_path
-    )
-    logger.info(f"文件上传到minio成功，保存路径为：pdf_file/{datetime.now().strftime('%Y%m%d')}/{task_id}/{file.filename}")
+    # 说明：Markdown 正文不依赖对象存储，只有 PDF 转图中的图片才需要；
+    #       因此 md 直接跳过，其余类型上传失败也只告警，不阻断入库。
+    if Path(local_file_path).suffix.lower() != ".md":
+        try:
+            minio_client = get_minio_client()
+            file_path = task_id[:13] + Path(local_file_path).name
+            minio_client.fput_object(
+                bucket_name=MinIoConfig.minio_bucket_name,
+                object_name=f"pdf_file/{datetime.now().strftime('%Y%m%d')}/{file_path}/{file.filename}",
+                file_path=local_file_path
+            )
+            logger.info(f"文件上传到minio成功，保存路径为：pdf_file/{datetime.now().strftime('%Y%m%d')}/{task_id}/{file.filename}")
+        except Exception as exc:
+            # MinIO 未配置或密钥错误时继续处理正文，避免整个入库失败
+            logger.warning(f"上传 MinIO 失败，已跳过（不影响正文入库）：{type(exc).__name__}: {exc}")
+    else:
+        logger.info("Markdown 文件无需上传对象存储，跳过 MinIO")
 
     # 更新上传文件的状态追踪
     add_done_task(task_id, "upload_file")  # 本质就是把upload_file从正在执行的列表中移除，添加到已完成列表中

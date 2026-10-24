@@ -39,7 +39,8 @@ class ConversationService:
         return {
             "id": conversation.id,
             "mode": conversation.mode,
-            "is_processing": is_processing  # AI 服务有没有在处理轮次消息
+            "is_processing": is_processing,  # AI 服务有没有在处理轮次消息
+            "current_task": _extract_current_task(conversation.task_state),
         }
 
     async def ensure_locked_active_conversation(
@@ -93,6 +94,8 @@ class ConversationService:
             if _has_idle_timeout(conversation):
                 conversation.mode = "CLOSED"
                 conversation.ended_at = conversation.last_active_at
+                # 会话超时关闭时清空任务状态，任务视为过期
+                conversation.task_state = None
                 await self.session.flush()
 
     async def get_conversation_detail(self, conversation_id: str) -> dict[str, list[dict[str, Any]]]:
@@ -120,6 +123,21 @@ def get_message_payload(message: Message) -> dict[str, Any]:
         "role": message.role,
         "content": message.content,
         "created_at": message.created_at
+    }
+
+
+def _extract_current_task(task_state: dict[str, Any] | None) -> dict[str, Any] | None:
+    """从会话任务状态中提取对外暴露的当前任务摘要。"""
+    if not task_state:
+        return None
+    active = task_state.get("active")
+    if not active:
+        return None
+    return {
+        "task_type": active.get("task_type"),
+        "status": active.get("status"),
+        "slots": active.get("slots") or {},
+        "missing_slots": active.get("missing_slots") or [],
     }
 
 

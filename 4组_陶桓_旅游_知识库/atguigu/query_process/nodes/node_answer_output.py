@@ -39,13 +39,74 @@ class NodeAnswerOutput(NodeBase):
             #第二步,调用大模型,根据提示词生成答案
             answer = self.generat_answer(answer, prompt, task_id)
 
-            #3整理图片的链接
+            #3 追加参考来源区块（不改 SSE 协议，仍走 delta 事件）
+            citation = self.build_citation_block(chunks)
+            if citation:
+                put_data(task_id, "delta", {"delta": citation})
+                answer += citation
+
+            #4整理图片的链接
             images = self.search_final_images(chunks)
 
-            #4写入历史
+            #5写入历史
             self.write_history(answer, images, item_names, query, state, task_id)
 
         return {"answer": answer}
+
+    def build_citation_block(self, chunks: list) -> str:
+        """按来源生成【参考来源】区块：本地文档、知识图谱、网络结果分别标注。
+
+        网络结果没有 source_file，必须用标题 + URL 标注，否则网页内容被答案采用
+        却不可追溯；图谱结果标注「知识图谱」，避免与本地文档混淆。
+        """
+        lines = []
+        seen = set()
+        for doc in chunks or []:
+            if not isinstance(doc, dict):
+                continue
+
+            source = str(doc.get("source") or "").strip()
+            meta = "·".join(
+                str(x).strip()
+                for x in (doc.get("content_type"), doc.get("city"))
+                if str(x or "").strip()
+            )
+
+            # 1. 网络结果：标题 + URL
+            if source == "web":
+                title = str(doc.get("title") or "").strip() or "网络结果"
+                url = str(doc.get("url") or "").strip()
+                key = ("web", url or title)
+                if key in seen:
+                    continue
+                seen.add(key)
+                lines.append(f"- 网络：{title}" + (f"（{url}）" if url else ""))
+                continue
+
+            # 2. 图谱结果：标注知识图谱，溯源文件可能为空
+            if source == "graph":
+                label = (
+                    str(doc.get("source_file") or "").strip()
+                    or str(doc.get("head") or "").strip()
+                    or "图谱关系"
+                )
+                key = ("graph", label)
+                if key in seen:
+                    continue
+                seen.add(key)
+                lines.append(f"- 知识图谱：{label}" + (f"（{meta}）" if meta else ""))
+                continue
+
+            # 3. 本地文档：按来源文件去重
+            source_file = str(doc.get("source_file") or "").strip()
+            if not source_file or ("local", source_file) in seen:
+                continue
+            seen.add(("local", source_file))
+            lines.append(f"- {source_file}" + (f"（{meta}）" if meta else ""))
+
+        if not lines:
+            return ""
+        return "\n\n【参考来源】\n" + "\n".join(lines)
 
     def write_history(self, answer, images, item_names, query, state,task_id):
         if answer:
@@ -78,8 +139,8 @@ class NodeAnswerOutput(NodeBase):
         llm = init_chat_model(
             model=LLMConfig.llm_default_model,
             temperature=LLMConfig.llm_default_temperature,
-            api_key=LLMConfig.aliyun_api_key,
-            base_url=LLMConfig.aliyun_api_base,
+            api_key=LLMConfig.chat_api_key,
+            base_url=LLMConfig.chat_api_base,
             model_provider="openai"
         )
 
@@ -112,7 +173,7 @@ class NodeAnswerOutput(NodeBase):
             text = h.get("text")
             h_content = f"[{role}]: {text}\n\n"
             history_content += h_content
-        item_names = state.get("item_names")
+        item_names = state.get("item_names") or []
         item_name_str = ",".join(item_names)
         query = state.get("rewritten_query")
         prompt = ANSWER_PROMPT.format(

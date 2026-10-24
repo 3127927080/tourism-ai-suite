@@ -34,7 +34,7 @@ class NodeBGEEmbedding(NodeBase):
                 chunk["sparse_vector"] = embeddings["sparse"][idx]
 
         #还是和上个节点一样,保存
-        # with open(r"D:\output\doc\parse\hak180产品安全手册\chunks3.json", "w", encoding="utf-8") as f:
+        # with open(r"C:\Users\th\Desktop\4组_陶桓_实战\4组_陶桓_旅游_知识库\output\chunks3.json", "w", encoding="utf-8") as f:
         #     f.write(json_format(chunks))
 
         return {
@@ -44,7 +44,7 @@ class NodeBGEEmbedding(NodeBase):
 
 if __name__ == '__main__':
     node = NodeBGEEmbedding()
-    with open(r"D:\output\doc\parse\hak180产品安全手册\chunks2.json", "r", encoding="utf-8") as f:
+    with open(r"C:\Users\th\Desktop\4组_陶桓_实战\4组_陶桓_旅游_知识库\output\chunks2.json", "r", encoding="utf-8") as f:
         chunks = json.load(f)
     state = {
         "chunks":chunks

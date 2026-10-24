@@ -1,7 +1,9 @@
 case_id,scene,question,ground_truth,expected_reply_type,expected_action_code,expected_tools,gold_knowledge_ids,forbidden_phrases,must_include,history,user_id,note
-kb_rule_001,policy,七天无理由退货从哪天开始计算？,符合平台七天无理由退货范围的商品，可以在签收后七天内申请退货，商品应保持完好。,ANSWER,,search_knowledge,KNOWLEDGE_AFTER_SALE_001,,七天,,,本地平台规则-七天无理由
-kb_rule_002,policy,退款审核通过后钱多久能退回来？,退款申请审核通过后，款项将原路退回支付账户，到账时间受支付机构处理进度影响。,ANSWER,,search_knowledge,KNOWLEDGE_AFTER_SALE_002,,原路退回,,,本地平台规则-退款到账
-kb_rule_003,policy,退货审核通过后需要在多长时间内把商品寄回？,退货申请审核通过后，请在售后页面规定的时间内寄回商品；逾期未寄回，申请可能自动关闭。,ANSWER,,search_knowledge,KNOWLEDGE_AFTER_SALE_003,,寄回,,,本地平台规则-寄回时限
-kb_rule_004,policy,我不喜欢了还能退吗？,符合七天无理由退货范围的商品，可以在签收后七天内申请退货，商品应保持完好。,ANSWER,,search_knowledge,KNOWLEDGE_AFTER_SALE_001,,七天,"[{""role"":""user"",""content"":""我昨天刚签收了订单里的商品""},{""role"":""ai"",""content"":""好的，请问您遇到什么问题了？""}]",,多轮上下文承接样本
-kb_rule_005,knowledge_missing,退货运费由谁承担？,,DECLINE,,search_knowledge,,运费由卖家承担|运费由平台承担|运费由买家承担|卖家包邮,,,,平台规则未覆盖运费归属
-kb_rule_006,knowledge_missing,小满X900空气炸锅的保修期是几年？,,DECLINE,,search_knowledge,,保修期为一年|保修期为两年|保修期为三年|三年保修,,,,商品知识缺失，不得编造
+kb_policy_001,policy,旅游产品的退改规则是怎么规定的？,不同旅游产品的退改规则不同，以订单页展示的退改政策为准；特价或促销产品可能不支持退改。,ANSWER,,search_knowledge,KNOWLEDGE_POLICY_001,一律可退|无条件退款,订单页,,,本地平台规则-退改政策
+kb_policy_002,policy,机票一般多久能出票？,机票和火车票的出票时间受航空公司或铁路系统影响，通常支付后 2 小时内完成，以订单状态为准。,ANSWER,,search_knowledge,KNOWLEDGE_POLICY_003,立即出票|秒出票,2 小时,,,本地平台规则-出票时效
+kb_policy_003,policy,出境游签证需要准备哪些材料？,签证材料需按目的地使领馆要求准备，平台仅提供签证代办服务说明，不保证签证结果。,ANSWER,,search_knowledge,KNOWLEDGE_POLICY_002,保证出签|百分百出签,使领馆,,,本地平台规则-签证材料
+kb_policy_004,policy,特价酒店能退吗？,不同旅游产品的退改规则不同，以订单页展示的退改政策为准；特价或促销产品可能不支持退改。,ANSWER,,search_knowledge,KNOWLEDGE_POLICY_001,一定可以退|无条件退,订单页,"[{""role"":""user"",""content"":""我刚订了三亚的酒店""},{""role"":""ai"",""content"":""好的，请问有什么可以帮您？""}]",,多轮上下文承接样本
+kb_missing_001,knowledge_missing,行李托运超重怎么收费？,,DECLINE,,search_knowledge,,每公斤收取|超重费为|按重量收费,,,,平台规则未覆盖超重收费
+kb_missing_002,knowledge_missing,景区里有充电宝可以租吗？,,DECLINE,,search_knowledge,,可以租充电宝|有充电宝租借,,,,知识缺失，不得编造
+kb_content_001,knowledge_content,三亚有哪些必去的景点？,三亚核心景点包括亚龙湾、蜈支洲岛、天涯海角和南山文化旅游区。 ,ANSWER,,search_knowledge,,,亚龙湾|蜈支洲,,,知识库景点内容
+kb_content_002,knowledge_content,云南6天线路怎么安排？,推荐昆明进出、大理+丽江的6天线路。,ANSWER,,search_knowledge,,,大理|丽江,,,知识库线路内容

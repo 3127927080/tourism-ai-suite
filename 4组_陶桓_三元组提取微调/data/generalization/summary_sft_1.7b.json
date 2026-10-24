@@ -1,0 +1,10 @@
+{
+  "model": "sft_1.7b",
+  "samples": 100,
+  "none_rate": 0.35,
+  "keep_rate": 0.65,
+  "avg_triples_per_sentence": 2.06,
+  "illegal_relation_count": 202,
+  "not_grounded_count": 56,
+  "responses": "C:\\Users\\th\\Desktop\\4组_陶桓_实战\\4组_陶桓_三元组提取微调\\data\\generalization\\responses_sft_1.7b.jsonl"
+}

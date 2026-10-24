@@ -69,8 +69,11 @@ class TurnProcessor:
         :return:
         """
 
-        # 1. 调用start_run(第一阶段)
-        event = await self.ai_gateway.start_run(token, request_data)
+        # 1. 调用start_run(第一阶段)，并收集 NDJSON token 增量
+        stream_deltas: list[str] = []
+        event = await self.ai_gateway.start_run(
+            token, request_data, on_delta=stream_deltas.append
+        )
 
         # 2. 找到run_id
         run_id = self.event_parser.find_run_id(event)
@@ -90,7 +93,11 @@ class TurnProcessor:
                 event = await self.ai_gateway.commit_run(token, run_id, request_data['input_revision'])
                 commit = True  # 变量
 
-            return run_id, self.event_parser.parser_outcome(event)
+            outcome = self.event_parser.parser_outcome(event)
+            # 只有直接完成的文本回复才携带增量（确认/转人工不流式）
+            if stream_deltas and outcome.get("outcome_type") == "reply":
+                outcome["stream_deltas"] = stream_deltas
+            return run_id, outcome
         except Exception as exec:
             if prepared and not commit:  # 控制二阶段（cancel 只能针对二阶段）
                 await self.ai_gateway.cancel_run(token, run_id)
@@ -174,11 +181,23 @@ class TurnProcessor:
                         run_result,
                     )
                 else:
+                    # 先写入 token 增量事件，再写入完整消息（保证前端先收到增量）
+                    if run_result.get("stream_deltas"):
+                        result_service.save_stream_deltas(
+                            conversation,
+                            run_result.get("message_id"),
+                            run_result["stream_deltas"],
+                        )
                     result_service.save_ai_result(
                         conversation,
                         turn,
                         run_result["content"],
                         message_id=run_result["message_id"]
+                    )
+                # 保存本轮任务状态（与消息同一事务原子提交；含清空场景）
+                if "task_state" in run_result:
+                    result_service.save_task_state(
+                        conversation, run_result["task_state"]
                     )
 
             # 6. 推进会话已经处理完成的输入版本

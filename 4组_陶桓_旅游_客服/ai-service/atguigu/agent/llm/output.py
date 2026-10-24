@@ -1,10 +1,10 @@
 from enum import StrEnum
 from typing import Self
 
-from pydantic import BaseModel, Field, model_validator,ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from atguigu.agent.harness.rules.action import ActionCode
-
+from atguigu.agent.harness.tasks.schema import TaskAction, TaskType
 
 
 class ReplyType(StrEnum):
@@ -66,6 +66,35 @@ class PageActionRequest(BaseModel):
         return self
 
 
+class TaskUpdate(BaseModel):
+    """定义主 Agent 每轮输出的任务状态变更。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    action: TaskAction = Field(description="本轮任务动作")
+    task_type: TaskType | None = Field(
+        default=None,
+        description="START/SWITCH 时必填，其余动作可为空"
+    )
+    slots: dict[str, str] = Field(
+        default_factory=dict,
+        description="本轮新收集或更新的槽位"
+    )
+    reason: str | None = Field(default=None, description="动作原因，便于审计")
+
+    @model_validator(mode="after")
+    def validate_task_update(self) -> Self:
+        """校验任务动作与任务类型的组合关系。"""
+        # 1. START/SWITCH 必须提供任务类型
+        if (
+                self.action in (TaskAction.START, TaskAction.SWITCH)
+                and self.task_type is None
+        ):
+            raise ValueError(f"{self.action} 必须提供 task_type")
+        # 2. 返回通过组合校验的任务更新
+        return self
+
+
 class AgentOutput(BaseModel):
     """定义大语言模型必须返回的结构化结果。"""
 
@@ -76,6 +105,46 @@ class AgentOutput(BaseModel):
         default=None,
         description="仅当用户明确要求前往、打开或查看页面，或者提出必须在页面完成的操作时提供；仅查询业务信息时不得提供"
     )
+    task_update: TaskUpdate | None = Field(
+        default=None,
+        description="本轮对多轮任务状态的动作与槽位更新；没有任务变化时为空"
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def sanitize_optional_parts(cls, data):
+        """容错：丢弃不合规的可选子结构，避免整轮回复被判结构化失败。"""
+        if not isinstance(data, dict):
+            return data
+        reply_type = data.get("reply_type")
+
+        # 1. 非转人工不得携带工单信息
+        if reply_type != ReplyType.REQUEST_HANDOFF and data.get("handoff_request") is not None:
+            data["handoff_request"] = None
+
+        # 2. 页面动作：仅 ANSWER；BROWSE 不带资源、其他必须带资源，否则丢弃
+        page_action = data.get("page_action_request")
+        if page_action is not None:
+            code = page_action.get("action_code") if isinstance(page_action, dict) else None
+            resource_id = page_action.get("resource_id") if isinstance(page_action, dict) else None
+            invalid = (
+                reply_type != ReplyType.ANSWER
+                or (code == "BROWSE_ORDERS" and resource_id is not None)
+                or (code not in (None, "BROWSE_ORDERS") and resource_id is None)
+            )
+            if invalid:
+                data["page_action_request"] = None
+
+        # 3. 任务动作：START/SWITCH 缺少 task_type 时丢弃该子结构
+        task_update = data.get("task_update")
+        if (
+            isinstance(task_update, dict)
+            and task_update.get("action") in ("START", "SWITCH")
+            and task_update.get("task_type") is None
+        ):
+            data["task_update"] = None
+
+        return data
 
     @model_validator(mode="after")
     def validate_output_fields(self) -> Self:

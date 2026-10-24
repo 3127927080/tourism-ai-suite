@@ -3,11 +3,11 @@
 数据集是 CSV，一行一条样本。列含义：
 
     case_id              样本编号，唯一
-    scene                场景标签（knowledge / order / after_sale / handoff ...）
+    scene                场景标签（policy / knowledge_missing / order / trip / handoff / product ...）
     question             用户本轮问题
     ground_truth         参考回答，RAGAS 的 reference；为空则跳过参考类指标
     expected_reply_type  期望的兜底回复类型（ANSWER / CLARIFY / DECLINE / REQUEST_HANDOFF）
-    expected_action_code 期望的服务端页面动作（CANCEL_ORDER / EDIT_ADDRESS ...）
+    expected_action_code 期望的服务端页面动作（CANCEL_BOOKING / EDIT_TRAVELER / APPLY_REFUND ...）
     expected_tools       期望必须调用的工具，用 | 分隔；缺任一项即规则层失败
     gold_knowledge_ids   期望召回的知识编号，用 | 分隔；用于 hit_rate / mrr
     forbidden_phrases    禁止出现的短语，用 | 分隔（红线检查）
@@ -66,7 +66,7 @@ def _parse_history(raw: str, case_id: str) -> tuple[dict[str, str], ...]:
     except json.JSONDecodeError as exc:
         raise ValueError(f"样本 {case_id} 的 history 不是合法 JSON") from exc
     if not isinstance(history, list):
-        raise ValueError(f"样本 {case_id} 的 history 必须是数组")
+        raise TypeError(f"样本 {case_id} 的 history 必须是数组")
     for item in history:
         if not isinstance(item, dict) or "role" not in item or "content" not in item:
             raise ValueError(f"样本 {case_id} 的 history 项必须包含 role 与 content")

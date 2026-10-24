@@ -37,15 +37,16 @@ _NODE_NAME_TO_CN: Dict[str, str] = {
     "node_entry": "检查文件",
     "node_pdf_to_md": "PDF转Markdown",
     "node_md_img": "Markdown图片处理",
+    "node_metadata_parse": "元数据解析",
     "node_item_name_recognition": "主体名称识别",
     "node_document_split": "文档切分",
     "node_bge_embedding": "向量生成",
     "node_import_milvus": "导入向量库",
     "node_graph_extract": "三元组提取",
-    "node_graph_import": "导入向量库",
+    "node_graph_import": "导入图谱",
 
     # --- Query 流程节点---
-    "node_item_name_confirm": "确认问题产品",
+    "node_item_name_confirm": "确认目的地与景点",
     "node_answer_output": "生成答案",
     "node_rerank": "重排序",
     "node_rrf": "倒排融合",

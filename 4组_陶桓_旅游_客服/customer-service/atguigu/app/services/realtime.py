@@ -90,6 +90,26 @@ class RealTimeOutBoxService:
                 conversation_id=conversation.id
             )
 
+    def add_message_delta_event(
+            self,
+            conversation: Conversation,
+            message_id: str | None,
+            delta: str,
+            index: int
+    ):
+        """向用户端写入一条 token 增量事件（打字机效果）。"""
+        self._add_outbox_event(
+            user_channel(conversation.user_id),
+            RealTimeOutBoxType.MESSAGE_DELTA,
+            {
+                "message_id": message_id,
+                "conversation_id": conversation.id,
+                "delta": delta,
+                "index": index,
+            },
+            conversation_id=conversation.id
+        )
+
     def add_handoff_changed_events(self, conversation: Conversation, handoff: Handoff):
         """向用户端和客服端写入工单状态事件"""
         for channel in (

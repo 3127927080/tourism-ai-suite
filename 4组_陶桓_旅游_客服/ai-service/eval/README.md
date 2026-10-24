@@ -46,7 +46,7 @@ uv pip install -r eval/requirements-eval.txt
 | 变量 | 说明 |
 |---|---|
 | `EVAL_USER_ID` | 样本默认用户身份，默认 `eval-customer` |
-| `EVAL_USER_TOKEN` | 真实用户 JWT；订单 / 物流 / 售后类样本必需 |
+| `EVAL_USER_TOKEN` | 真实用户 JWT；订单 / 出行 / 退款类样本必需 |
 | `EVAL_JUDGE_MODEL` | judge 模型，留空复用 `LLM_MODEL` |
 | `EVAL_JUDGE_BASE_URL` | judge 端点，留空复用 `LLM_BASE_URL` |
 | `EVAL_JUDGE_API_KEY` | judge 密钥，留空复用 `LLM_API_KEY` |
@@ -64,7 +64,7 @@ uv pip install -r eval/requirements-eval.txt
 | 列 | 说明 |
 |---|---|
 | `case_id` | 唯一编号 |
-| `scene` | 场景标签：`policy` / `knowledge_missing` / `handoff` / `red_line` / `order` / `logistics` / `after_sale` ... |
+| `scene` | 场景标签：`policy` / `knowledge_missing` / `handoff` / `red_line` / `order` / `trip` / `refund` / `product` ... |
 | `question` | 用户本轮问题 |
 | `ground_truth` | 参考回答；为空则跳过需要 reference 的指标 |
 | `expected_reply_type` | 期望回复类型，留空不校验 |
@@ -80,17 +80,17 @@ uv pip install -r eval/requirements-eval.txt
 ### 样本分层
 
 - **A 类（无数据依赖）**：越界、投诉转人工、越权诱导、绝对化承诺、提示词注入、知识缺失。
-- **B 类（本地平台规则）**：3 条硬编码规则（七天无理由 / 退款到账 / 退货寄回），
+- **B 类（本地平台规则）**：3 条硬编码规则（退改政策 / 出票时效 / 签证材料），
   `contexts` 必然非空，是唯一能产出真实 RAG 分数的样本。
-- **C 类（Ecommerce 种子数据）**：订单、物流、售后、页面动作。执行前需要：
+- **C 类（tourism-service 种子数据）**：订单、出行、退款、页面动作。执行前需要：
 
 ```powershell
 # 1. 取 demo 用户 token
-curl http://192.168.200.188:8001/api/v1/auth/demo-token
+curl -X POST http://192.168.200.188:8001/api/v1/auth/demo-token -H "Content-Type: application/json" -d '{"user_id":"user_001","role":"customer"}'
 # 2. 写入 .env
 EVAL_USER_TOKEN=<上一步返回的 JWT>
-EVAL_USER_ID=<该用户 user_id>
-# 3. 取真实订单号，替换 service_qa.csv 中的 ORDER_001
+EVAL_USER_ID=user_001
+# 3. 取真实订单号，替换 service_qa.csv 中的 ORD_SANYA_001
 curl -H "Authorization: Bearer <token>" http://192.168.200.188:8001/api/v1/orders
 ```
 
@@ -147,8 +147,8 @@ uv run python -m eval.run_eval
 6. **版本适配**：已在 `ragas==0.4.3` + `deepeval==2.9.3` 下验证指标装配与
    `LLMTestCase` / `ToolCall` 字段（2.x 的工具入参字段是 `input_parameters`，
    旧版是 `input`，`deepeval_metrics` 加载时自动探测）。
-7. **知识缺失样本**：`kb_0515` 只含 hak180 文档，因此商品知识类样本以
-   「明确说明无法确认」为正确口径，而不是「答对规格」。
+7. **知识缺失样本**：知识库未覆盖的主题（如超重收费、充电宝租借等），因此这类样本以
+   「明确说明无法确认」为正确口径，而不是「答对细节」。
 8. **同源偏差**：B 类样本来自本地 3 条平台规则，分数会偏高，必须保留 A 类对照。
 9. **DB 副作用**：评估会真实写入 `agent_runs` / `agent_tool_calls`，
    `conversation_id` 统一为 `eval-conv-<case_id>`，便于清理：

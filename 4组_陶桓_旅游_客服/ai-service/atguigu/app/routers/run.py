@@ -1,18 +1,21 @@
 from typing import Annotated, NoReturn
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi.responses import StreamingResponse
 
 from atguigu.agent.harness.errors import (
     AgentRunForbiddenError,
     AgentRunNotFoundError,
     AgentRunStateError,
 )
+from atguigu.agent.harness.run.streaming import build_ndjson_lines
 from atguigu.app.dependencies import (
     AgentRunCoordinatorDep,
     get_auth_service,
     require_internal_service,
 )
 from atguigu.app.schemas.run import AgentRunRequest
+from atguigu.common.config import get_settings
 
 router = APIRouter(prefix="/internal/v1/agent", tags=["AI Run"])
 
@@ -44,14 +47,19 @@ async def start_run(
         agent_coordinator: AgentRunCoordinatorDep,
         authorization: Annotated[str | None, Header()] = None,
 
-) -> dict:
+) -> StreamingResponse:
     auth_service = get_auth_service()
     current_user = auth_service.get_authorized_user(
         authorization,
         "customer"
     )
     access_token = auth_service.get_bearer_token(authorization)
-    return await agent_coordinator.start_run(current_user.user_id, access_token, request)
+    event = await agent_coordinator.start_run(current_user.user_id, access_token, request)
+    # 以 NDJSON 流式返回：先按块下发 run_delta，再下发最终事件
+    return StreamingResponse(
+        build_ndjson_lines(event, get_settings().stream_chunk_size),
+        media_type="application/x-ndjson",
+    )
 
 
 @router.post("/runs/{run_id}/confirm")

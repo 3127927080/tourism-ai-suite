@@ -45,3 +45,6 @@ class NodeBase(ABC):
         except Exception as e:
             logger.error(f"--- {self.name} 节点执行异常 ---")
             logger.error(e)
+            # 不吞异常：交给上层把任务标记为 failed，
+            # 否则前端会一直看到任务停在 processing。
+            raise

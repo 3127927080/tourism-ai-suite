@@ -10,10 +10,10 @@ class ActionCode(StrEnum):
 
     BROWSE_ORDERS = "BROWSE_ORDERS"
     OPEN_ORDER_DETAIL = "OPEN_ORDER_DETAIL"
-    CANCEL_ORDER = "CANCEL_ORDER"
-    EDIT_ADDRESS = "EDIT_ADDRESS"
-    APPLY_AFTER_SALE = "APPLY_AFTER_SALE"
-    VIEW_AFTER_SALES = "VIEW_AFTER_SALES"
+    CANCEL_BOOKING = "CANCEL_BOOKING"
+    EDIT_TRAVELER = "EDIT_TRAVELER"
+    APPLY_REFUND = "APPLY_REFUND"
+    VIEW_REFUNDS = "VIEW_REFUNDS"
 
 
 class PageAction(BaseModel):
@@ -102,31 +102,31 @@ ACTION_CATALOG = ActionCatalog(
             resource_type="order"
         ),
         ActionDefinition(
-            action_code=ActionCode.CANCEL_ORDER,
-            label="前往取消订单",
-            description="进入订单页面核对状态并确认取消",
+            action_code=ActionCode.CANCEL_BOOKING,
+            label="前往取消预订",
+            description="进入订单页面核对状态并确认取消预订",
             path_template="/me/orders/{resource_id}/cancel",
             resource_type="order"
         ),
         ActionDefinition(
-            action_code=ActionCode.EDIT_ADDRESS,
-            label="前往修改地址",
-            description="进入订单页面修改收货地址",
-            path_template="/me/orders/{resource_id}/address",
+            action_code=ActionCode.EDIT_TRAVELER,
+            label="前往修改出行人",
+            description="进入订单页面修改出行人信息",
+            path_template="/me/orders/{resource_id}/travelers",
             resource_type="order"
         ),
         ActionDefinition(
-            action_code=ActionCode.APPLY_AFTER_SALE,
-            label="申请售后",
-            description="进入订单页面填写售后申请",
-            path_template="/me/orders/{resource_id}/after-sale",
+            action_code=ActionCode.APPLY_REFUND,
+            label="申请退款",
+            description="进入订单页面填写退款申请",
+            path_template="/me/orders/{resource_id}/refund",
             resource_type="order"
         ),
         ActionDefinition(
-            action_code=ActionCode.VIEW_AFTER_SALES,
-            label="查看售后进度",
-            description="进入订单页面查看售后记录",
-            path_template="/me/orders/{resource_id}?section=after-sales",
+            action_code=ActionCode.VIEW_REFUNDS,
+            label="查看退款进度",
+            description="进入订单页面查看退款记录",
+            path_template="/me/orders/{resource_id}?section=refunds",
             resource_type="order"
         ),
     )

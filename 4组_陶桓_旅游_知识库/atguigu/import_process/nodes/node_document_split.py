@@ -1,4 +1,5 @@
 # atguigu/import_process/nodes/node_document_split.py
+import json
 import re
 from pathlib import Path
 
@@ -58,6 +59,15 @@ class NodeDocumentSplit(NodeBase):
         md_content = md_content.replace("\r\n", "\n").replace("\r", "\n")
         return file_title, md_content,md_path_obj
 
+    def strip_metadata_block(self, md_content: str) -> str:
+        """剔除 `## 元数据` 段，避免元数据本身被切成低价值 chunk。"""
+        return re.sub(
+            r"^##\s*元数据\s*$\n.*?(?=^##\s|\Z)",
+            "",
+            md_content,
+            flags=re.M | re.S,
+        )
+
     def get_section_list(self, file_title: str, md_content: str):
         # 2.1第一步先按行去切分
         md_line_list = md_content.split("\n")
@@ -98,23 +108,32 @@ class NodeDocumentSplit(NodeBase):
                 # 既满足不在代码块内,又符合标题的正则,则是标题行,准备切分,切上一个标题到这个标题的行
                 temp_list = md_line_list[current_idx:idx]
                 content = "\n".join(temp_list)
-                # 准备字典,对于标题可能是没有的，所以这里要判断
-                section_dict = {
-                    "title": temp_list[0] if content.startswith("#") else "无标题",
-                    "content": content,
-                    "file_title": file_title
-                }
-                section_list.append(section_dict)
+                # 首个标题在第 0 行时 temp_list 为空，跳过，避免产生空正文的 chunk
+                if content.strip():
+                    # 标题取第一行真正以 # 开头的行，避免内容以空行开头时取到空串
+                    title_line = next(
+                        (ln.strip() for ln in temp_list if ln.strip().startswith("#")),
+                        "无标题",
+                    )
+                    # 准备字典,对于标题可能是没有的，所以这里要判断
+                    section_dict = {
+                        "title": title_line,
+                        "content": content,
+                        "file_title": file_title
+                    }
+                    section_list.append(section_dict)
                 # 切分完成,将当前行索引更新为idx
                 current_idx = idx
 
         # 走出大循环之后,因为最后一个段落不会切分，所以需要单独处理
-        section_dict = {
-            "title": md_line_list[current_idx],
-            "content": '\n'.join(md_line_list[current_idx:]),
-            "file_title": file_title
-        }
-        section_list.append(section_dict)
+        tail_content = '\n'.join(md_line_list[current_idx:])
+        if tail_content.strip():
+            section_dict = {
+                "title": md_line_list[current_idx].strip(),
+                "content": tail_content,
+                "file_title": file_title
+            }
+            section_list.append(section_dict)
         return section_list
 
     def get_final_section_list(self, file_title, section_list) :
@@ -160,15 +179,66 @@ class NodeDocumentSplit(NodeBase):
                 })
         return final_section_list
 
+    def attach_doc_metadata(self, final_section_list: list, doc_metadata: dict) -> None:
+        """把文档级元数据透传到每个 chunk，并按小节标题匹配实体。"""
+        meta = doc_metadata or {}
+        entity_map = {
+            str(e.get("name")).strip(): e
+            for e in (meta.get("entities") or [])
+            if isinstance(e, dict) and e.get("name")
+        }
+        base_fields = {
+            "content_type": meta.get("content_type", ""),
+            "city": meta.get("city", ""),
+            "cities": json.dumps(meta.get("cities") or [], ensure_ascii=False),
+            "scenic_name": meta.get("scenic_name", ""),
+            "route_name": meta.get("route_name", ""),
+            "hotel_name": meta.get("hotel_name", ""),
+            "restaurant_name": meta.get("restaurant_name", ""),
+            "source_file": meta.get("source_file", ""),
+            "source_path": meta.get("source_path", ""),
+            "theme": meta.get("theme", ""),
+            "duration_days": int(meta.get("duration_days") or 0),
+            "budget_ref": meta.get("budget_ref", ""),
+            "estimated": bool(meta.get("estimated", False)),
+            # 主体识别优先取城市，这里先回填，后续节点可覆盖
+            "item_name": meta.get("city", ""),
+        }
+        # metadata_json 不含 entities，避免重复占空间
+        metadata_json = json.dumps(
+            {k: v for k, v in meta.items() if k != "entities"},
+            ensure_ascii=False,
+            default=str,
+        )
+
+        for chunk in final_section_list:
+            chunk.update(base_fields)
+            title_text = str(chunk.get("title", "")).lstrip("#").strip()
+            matched = [
+                entity for name, entity in entity_map.items() if name and name in title_text
+            ]
+            # Milvus 侧只存实体名（JSON 字符串数组），便于 json_contains 过滤；
+            # 实体的类型信息保留在 metadata_json 里
+            chunk["entities"] = [entity.get("name") for entity in matched]
+            chunk["entity_type"] = matched[0].get("type", "") if matched else ""
+            # Milvus VARCHAR 按字节计，中文约占 3 字节，这里留足余量
+            chunk["metadata_json"] = metadata_json[:6000]
+
     def process(self, state: ImportGraphState):
         #第一步,获取文件名字和内容,后面节点串联起来后可以直接state里面get
         file_title, md_content,md_path_obj = self.get_md_content(state)
 
-        #第二步,初切分,按标题切分为大块
+        #第二步,剔除元数据段,它只作为元数据来源,不应进入正文切片
+        md_content = self.strip_metadata_block(md_content)
+
+        #第三步,初切分,按标题切分为大块
         section_list = self.get_section_list(file_title, md_content)
 
-        #第三步,对每个块进行长切短合
+        #第四步,对每个块进行长切短合
         final_section_list = self.get_final_section_list(file_title, section_list)
+
+        #第五步,透传文档级元数据与实体
+        self.attach_doc_metadata(final_section_list, state.get("doc_metadata") or {})
 
         #因为下一个节点需要,所以这里还是找个文件保存处理好的列表
         # 备份chunks列表到json文件
@@ -185,8 +255,8 @@ class NodeDocumentSplit(NodeBase):
 if __name__ == "__main__":
     node = NodeDocumentSplit()
     state = {
-        "md_path":r"D:\output\doc\parse\hak180产品安全手册\hak180产品安全手册_new.md",
-        "file_title":"hak180产品安全手册",
+        "md_path":r"C:\Users\th\Desktop\4组_陶桓_实战\4组_陶桓_旅游_知识库\旅游数据\景点攻略\三亚景点推荐.md",
+        "file_title":"三亚景点推荐",
     }
     res = node(state)
     logger.info(json_format(res))

@@ -1,18 +1,27 @@
+import asyncio
 from typing import Any, Final
 
 from langchain.agents.middleware.tool_call_limit import ToolCallLimitExceededError
 from langchain_core.callbacks import UsageMetadataCallbackHandler
 from pydantic import ValidationError
 
-from atguigu.agent.harness.errors import AgentExecutionError, AgentOutputValidationError, TerminalErrorCode, \
-    CorrectableErrorCode
+from atguigu.agent.harness.errors import (
+    AgentExecutionError,
+    AgentOutputValidationError,
+    CorrectableErrorCode,
+    TerminalErrorCode,
+)
 from atguigu.agent.harness.rules.correction import OutputCorrectionRules
+from atguigu.agent.harness.run.context import ContextCompiler
 from atguigu.agent.harness.run.runtime import AgentRuntimeContext
+from atguigu.agent.harness.validator.output import (
+    AgentOutputValidator,
+    ValidatedAgentOutput,
+)
 from atguigu.agent.llm.adapter import ModelAdapter
 from atguigu.agent.llm.output import AgentOutput, ReplyType
 from atguigu.app.schemas.run import AgentRunRequest
-from atguigu.agent.harness.run.context import ContextCompiler
-from atguigu.agent.harness.validator.output import AgentOutputValidator, ValidatedAgentOutput
+from atguigu.common.config import get_settings
 
 
 class AgentExecutor:
@@ -43,12 +52,21 @@ class AgentExecutor:
         messages = self.context_compiler.compile_messages(request)
         usage_callback = UsageMetadataCallbackHandler()
 
-        # 2. 执行带有明确次数上限的 Agent 生成和纠错
-        validated_output = await self._execute_with_correction(
-            messages,
-            runtime_context,
-            usage_callback
-        )
+        # 2. 在整体超时约束内执行带有明确次数上限的 Agent 生成和纠错
+        try:
+            validated_output = await asyncio.wait_for(
+                self._execute_with_correction(
+                    messages,
+                    runtime_context,
+                    usage_callback
+                ),
+                timeout=get_settings().agent_run_timeout_seconds
+            )
+        except TimeoutError as exc:
+            raise AgentExecutionError(
+                TerminalErrorCode.AGENT_EXECUTION_FAILED,
+                "Agent 执行超时"
+            ) from exc
 
         # 3. 将全部模型调用和纠错消耗合并到可信输出
         return validated_output.model_copy(
