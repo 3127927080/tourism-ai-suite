@@ -1,0 +1,10 @@
+{
+  "model": "sft_4b",
+  "samples": 100,
+  "none_rate": 0.23,
+  "keep_rate": 0.77,
+  "avg_triples_per_sentence": 3.57,
+  "illegal_relation_count": 126,
+  "not_grounded_count": 25,
+  "responses": "/root/autodl-tmp/tourism_triple/data/generalization/responses_sft_4b.jsonl"
+}
