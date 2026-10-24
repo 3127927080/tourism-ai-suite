@@ -1,5 +1,7 @@
 import json
+import os
 import re
+import urllib.request
 from typing import List, Dict, Any, Tuple
 
 from atguigu.config.prompt import (
@@ -23,12 +25,20 @@ class NodeGraphExtract(NodeBase):
 
     name = "node_graph_extract"
 
+    # 抽取模式：llm（默认，走云端大模型）| http（调本地 8006 微调模型服务）
+    MODE = os.getenv("TRIPLE_EXTRACTOR_MODE", "llm").strip().lower()
+    SERVICE_URL = os.getenv("TRIPLE_SERVICE_URL", "http://127.0.0.1:8006")
+
     def process(self, state: ImportGraphState):
         logger.info("NodeGraphExtract: 开始批量抽取实体关系三元组")
         chunks = state.get("chunks", [])
         if not chunks:
             logger.warning("chunks 为空，跳过三元组提取")
             return {"triples": []}
+
+        if self.MODE == "http":
+            logger.info(f"抽取模式=http，调用 {self.SERVICE_URL}")
+            return {"triples": self._extract_via_http(chunks)}
 
         # 初始化 LLM
         llm = init_chat_model(
@@ -145,6 +155,51 @@ class NodeGraphExtract(NodeBase):
         return {
             "triples": unique_triples
         }
+
+    def _extract_via_http(self, chunks: List[Dict[str, Any]]) -> List[List[str]]:
+        """调用 8006 微调模型服务；服务端与本节点各做一次合法性校验（幂等）。"""
+        BATCH = 8
+        items = [(c.get("content", "") or "")[:800] for c in chunks]
+        all_triples, seen = [], set()
+        failed = 0
+
+        for start in range(0, len(items), BATCH):
+            batch = items[start:start + BATCH]
+            payload = json.dumps({"texts": batch}, ensure_ascii=False).encode("utf-8")
+            req = urllib.request.Request(
+                f"{self.SERVICE_URL}/extract",
+                data=payload,
+                headers={"Content-Type": "application/json; charset=utf-8"},
+                method="POST",
+            )
+            try:
+                with urllib.request.urlopen(req, timeout=600) as resp:
+                    data = json.loads(resp.read().decode("utf-8"))
+            except Exception as e:
+                logger.error(f"调用抽取服务失败（第 {start // BATCH + 1} 批）: {e}")
+                failed += len(batch)
+                continue
+
+            for text, triples in zip(batch, data.get("triples", [])):
+                norm = self._normalize(text)
+                for t in triples:
+                    if not (isinstance(t, list) and len(t) == 3):
+                        continue
+                    head, relation, tail = (str(x).strip() for x in t)
+                    if not head or not tail or not is_valid_relation(relation):
+                        continue
+                    if not (self._appears_in(head, norm) and self._appears_in(tail, norm)):
+                        continue
+                    key = (head, relation, tail)
+                    if key not in seen:
+                        seen.add(key)
+                        all_triples.append([head, relation, tail])
+
+        logger.info(
+            f"8006 抽取完成：{len(items)} 个 chunk，保留 {len(all_triples)} 个唯一三元组"
+            f"，失败 {failed} 个 chunk"
+        )
+        return all_triples
 
     @staticmethod
     def _normalize(text: str) -> str:
