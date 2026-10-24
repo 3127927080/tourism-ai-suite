@@ -1,0 +1,53 @@
+﻿python.exe : C:\Users\th\Desktop\4组_陶桓_实战\联调证据\verify_triple_pipeline.py:1: SyntaxWarning: invalid escape sequence '\S'
+At line:1 char:510
++ ... sktop\4组_陶桓_实战\联调证据\triple_pipeline.json"; & $py $script 2>&1 | Tee-O ...
++                                                ~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (C:\Users\th\Des...e sequence '\S':String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+  """验证「微调模型 8006 → 知识库抽取节点 → Neo4j 图谱」链路。
+2026-10-24 09:35:50 - node_graph_extract.py:33 - INFO - NodeGraphExtract: 开始批量抽取实体关系三元组
+2026-10-24 09:35:50 - node_graph_extract.py:40 - INFO - 抽取模式=http，调用 http://127.0.0.1:8006
+2026-10-24 09:36:05 - node_graph_extract.py:198 - INFO - 8006 抽取完成：3 个 chunk，保留 5 个唯一三元组，失败 0 个 chunk
+2026-10-24 09:36:05 - node_graph_import.py:20 - INFO - 【node_graph_import】开始执行
+2026-10-24 09:36:05 - node_graph_import.py:27 - INFO - 共 5 个三元组待写入
+2026-10-24 09:36:05 - neo4j_client_tool.py:26 - INFO - ✅ Neo4j 连接成功: bolt://192.168.253.22:7687
+2026-10-24 09:36:07 - node_graph_import.py:85 - INFO - 写入完成: 成功 5 个，失败 0 个
+{
+  "extractor_mode": "http",
+  "service_url": "http://127.0.0.1:8006",
+  "chunks": 3,
+  "triples": [
+    [
+      "亚龙湾",
+      "位于",
+      "三亚市东南部"
+    ],
+    [
+      "亚龙湾",
+      "适合",
+      "家庭度假"
+    ],
+    [
+      "三亚市区",
+      "途经",
+      "大东海"
+    ],
+    [
+      "蜈支洲岛",
+      "提供",
+      "潜水等海上项目"
+    ],
+    [
+      "蜈支洲岛",
+      "需要",
+      "提前预约门票"
+    ]
+  ],
+  "triple_count": 5,
+  "graph_import_stats": {
+    "total": 5,
+    "success": 5,
+    "fail": 0
+  }
+}

@@ -1,0 +1,111 @@
+{
+  "timestamp": "2026-10-24T09:37:35",
+  "base_urls": {
+    "cs": "http://127.0.0.1:8000",
+    "tourism": "http://127.0.0.1:8001",
+    "ai": "http://127.0.0.1:8002",
+    "kb": "http://127.0.0.1:8005",
+    "triple": "http://127.0.0.1:8006"
+  },
+  "health": {
+    "customer_8000": true,
+    "tourism_8001": true,
+    "ai_8002": true,
+    "kb_8005": true,
+    "triple_8006": true
+  },
+  "user": "user_001",
+  "agent": "agent_001",
+  "passed": 4,
+  "total": 4,
+  "results": [
+    {
+      "scenario": "INT-01 知识问答带引用",
+      "passed": true,
+      "elapsed_seconds": 18.2,
+      "detail": {
+        "question": "三亚有哪些必去景点",
+        "reply": "三亚的景点大致分东线和西线两组，第一次去可以先建立这个框架：\n\n**东线（海湾、离岛、度假酒店、海上活动）**\n- 亚龙湾：高质量海湾，海滨度假体验的代表\n- 蜈支洲岛：离岛体验和海上项目的代表\n- 海棠湾：同属东线海湾片区\n\n**西线（传统观光、大型文化景区）**\n- 天涯海角：三亚传统地标\n- 南山文化旅游区：大型文化观光景区\n\n**其他片区**：大东海、三亚湾更偏住宿和城市休闲场景，会影响整体行程节奏。\n\n**时间安排建议**\n- 蜈支洲岛和南山更适合留主要时段；亚龙湾适合按度假节奏灵活安排；天涯海角通常不需要独占完整一天。\n- 3 天：较稳妥是亚龙湾加蜈支洲岛，再根据返程时间决定是否补天涯海角或鹿回头；不建议东西线全部铺开。\n- 5 天：一到两天海湾与酒店体验，一天蜈支洲岛，一天西线景点，一天机动或补充鹿回头、西岛、免税城等。\n\n另外，我按“三亚景点门票”搜索了在售产品，目前没有查到可售的景区门票产品。如果您需要，可以告诉我具体想去的景点，我再帮您查一下相关产品。\n\n参考来源：\n- 第一层核心景点（知识库文档）\n- 目的地概览（知识库文档）\n- 3 天景点安排（知识库文档）\n- 5 天景点安排（知识库文档）\n- 三亚哪些景点更适合安排整天（知识库文档）\n\n参考来源：\n- 第一层核心景点（知识库文档）\n- 目的地概览（知识库文档）\n- 3 天景点安排（知识库文档）",
+        "reply_type": "ANSWER",
+        "has_citation": true,
+        "mentions_sanya": true
+      }
+    },
+    {
+      "scenario": "INT-02 订单出行信息",
+      "passed": true,
+      "elapsed_seconds": 6.1,
+      "detail": {
+        "question": "订单 ORD_SANYA_001 出行信息",
+        "reply": "订单 ORD_SANYA_001 的出行信息如下：\n\n**行程日期**\n- 出行日期：2026-11-10\n- 入住日期：2026-11-10\n- 退房日期：2026-11-13\n\n**行程安排**\n- 2026-11-10 15:00 预计办理入住\n- 2026-11-11 09:00 蜈支洲岛一日游\n\n**旅客信息**\n- 李明，身份证，手机 138****0001\n\n**集合点**\n- 三亚亚龙湾五星海景度假酒店大堂\n\n**订单状态**：upcoming（待出行）\n\n该订单没有航班、车次等交通班次信息，出发和到达时间均为空。如需查看订单金额或产品明细，可以告诉我。",
+        "mentions_order": true
+      }
+    },
+    {
+      "scenario": "INT-03 退款多轮槽位",
+      "passed": true,
+      "elapsed_seconds": 12.3,
+      "detail": {
+        "turn1_reply": "已确认订单 ORD_SANYA_001（三亚亚龙湾五星海景度假酒店 + 蜈支洲岛景区门票，出行日期 2026-11-10 至 2026-11-13，订单金额 1424.0 元，状态：待出行），该订单目前没有退款记录。\n\n为了帮您准备退款申请，还需要确认两点：\n1. 退款类型：全额退款、部分退款，还是改期？\n2. 退款原因：方便简单说明一下吗？\n\n补充这两项后，我可以引导您进入订单页面填写退款申请。实际退款需要您在页面提交，我这里无法直接为您办理。",
+        "turn1_task": {
+          "task_type": "refund_request",
+          "status": "COLLECTING",
+          "slots": {
+            "order_id": "ORD_SANYA_001"
+          },
+          "missing_slots": [
+            "refund_reason",
+            "refund_type"
+          ]
+        },
+        "turn2_reply": "已确认订单 ORD_SANYA_001（三亚亚龙湾五星海景度假酒店 + 蜈支洲岛景区门票，出行日期 2026-11-10 至 2026-11-13，订单金额 1424.0 元，状态：待出行），该订单目前没有退款记录。\n\n您的退款申请信息已记录：\n- 退款类型：全额退款\n- 退款原因：行程取消\n\n请前往订单页面填写并提交退款申请，实际退款结果以页面提交后的处理为准，我这里无法直接为您办理退款。提交后如需查询进度，可以随时告诉我。",
+        "turn2_action": {
+          "href": "/me/orders/ORD_SANYA_001/refund",
+          "label": "申请退款",
+          "description": "进入订单页面填写退款申请"
+        },
+        "turn2_task": null
+      }
+    },
+    {
+      "scenario": "INT-04 转人工工单闭环",
+      "passed": true,
+      "elapsed_seconds": 7.4,
+      "detail": {
+        "ai_reply": "好的，已为您转接人工客服处理酒店服务投诉。为便于人工客服快速跟进，请补充说明具体问题（如服务态度、房间卫生、设施故障等）和发生时间，人工客服会尽快与您联系。",
+        "mode_after_transfer": "QUEUED",
+        "handoff": {
+          "id": "handoff_1f289e0c14d6421f887c51d989748ed6",
+          "conversation_id": "conv_f7760b99476947bf87264de01ce2ceab",
+          "user_id": "user_001",
+          "summary": "用户投诉酒店服务，涉及订单 ORD_SANYA_001（三亚亚龙湾五星海景度假酒店 + 蜈支洲岛景区门票，出行日期 2026-11-10 至 2026-11-13）。用户明确要求转人工客服处理投诉，具体问题细节待补充。",
+          "status": "waiting",
+          "assigned_agent_id": null,
+          "created_at": "2026-10-24T01:37:30.698066Z"
+        },
+        "accept_http": 204,
+        "reply_http": 204,
+        "resolve_http": 204,
+        "human_message_seen": true,
+        "mode_after_resolve": "AI"
+      }
+    }
+  ],
+  "session_snapshot": {
+    "conversation_id": "conv_f7760b99476947bf87264de01ce2ceab",
+    "mode": "AI",
+    "current_task": {
+      "task_type": "complaint_ticket",
+      "status": "COLLECTING",
+      "slots": {
+        "order_id": "ORD_SANYA_001",
+        "ticket_type": "投诉",
+        "issue_description": "投诉酒店服务"
+      },
+      "missing_slots": []
+    },
+    "message_count": 24,
+    "last_sequence": 24,
+    "last_message_id": "msg_99bfbca7efa84bffa086a0fe503678dc"
+  }
+}

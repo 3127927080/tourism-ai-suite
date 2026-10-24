@@ -30,6 +30,7 @@ desktop.ini
 
 # 运行产物与日志
 *.log
+*.log.err
 logs/
 tmp/
 temp/
